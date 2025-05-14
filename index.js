@@ -1,5 +1,3 @@
-// LINE Bot + ChatGPT連携 + 特定ワード検知 + グループIDログ出力対応
-
 import express from 'express';
 import { middleware, Client } from '@line/bot-sdk';
 import { OpenAI } from 'openai';
@@ -16,51 +14,68 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// 特定ワードに反応してグループ通知する設定
+const ALERT_KEYWORDS = ['しにたい', '死にたい', 'つらい', '消えたい'];
+const ADMIN_PHONE = '09048393313';
+const GROUP_ID_FOR_ALERT = 'ここに通知先グループID'; // ←ここは後で置き換える
+
 app.post('/webhook', middleware(config), async (req, res) => {
   try {
     const results = await Promise.all(req.body.events.map(handleEvent));
     res.json(results);
   } catch (err) {
-    console.error(err);
+    console.error('Webhook Error:', err);
     res.status(500).end();
   }
 });
 
 async function handleEvent(event) {
-  console.log('event source:', event.source); // 🔍 groupIdなどを表示
-
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
   }
 
   const userMessage = event.message.text;
-  const lowered = userMessage.toLowerCase();
+  const source = event.source;
 
-  // 📢 特定ワードを含む場合はグループ通知＋個別メッセージ
-  if (lowered.includes('しにたい') || lowered.includes('死にたい') || lowered.includes('つらい') || lowered.includes('しんどい')) {
-    const phoneText = 'とても心配です。今すぐ相談できます → 090-4839-3313 📞';
+  // グループIDをログ出力
+  if (source.type === 'group' && source.groupId) {
+    console.log('✅ グループID検出:', source.groupId);
+  }
 
-    // ※ここにグループ通知を入れるには groupId を確認して設定が必要です
-    // 例: await client.pushMessage('YOUR_GROUP_ID', { type: 'text', text: `⚠️ 注意: ${userMessage}` });
+  // NGワードチェック
+  const containsAlert = ALERT_KEYWORDS.some(word => userMessage.includes(word));
 
+  if (containsAlert) {
+    const alertText = `⚠️ ご相談内容に重要ワードが含まれました。\n\n📩 内容:「${userMessage}」\n📞 至急連絡：${ADMIN_PHONE}`;
+
+    // グループ通知（通知先が設定されている場合のみ）
+    if (GROUP_ID_FOR_ALERT !== 'ここに通知先グループID') {
+      await client.pushMessage(GROUP_ID_FOR_ALERT, {
+        type: 'text',
+        text: alertText,
+      });
+    }
+
+    // 返信：やさしく反応
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: `${phoneText}\nこころちゃんがいつでも寄り添います 🌸`,
+      text: `🌸 大変そうですね…。\nあなたの話を聞けてうれしいです。\n必要なら ${ADMIN_PHONE} にもご連絡くださいね。`,
     });
   }
 
+  // 通常応答（ChatGPT）
   try {
     const chatResponse = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+      model: "gpt-3.5-turbo",
       messages: [
         {
-          role: 'system',
-          content: 'あなたは思いやりのある相談アドバイザーです。短く、やさしく、少しだけ絵文字を使って答えてください。',
+          role: "system",
+          content: "あなたは思いやりのある相談アドバイザーです。短く、やさしく、温かく答えてください。"
         },
         {
-          role: 'user',
-          content: userMessage,
-        },
+          role: "user",
+          content: userMessage
+        }
       ],
     });
 
@@ -74,7 +89,7 @@ async function handleEvent(event) {
     console.error('OpenAI API Error:', err);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'ごめんなさい、うまく応答できませんでした🙏',
+      text: 'ごめんなさい、うまく応答できませんでした。🙇‍♀️',
     });
   }
 }
@@ -82,5 +97,5 @@ async function handleEvent(event) {
 // Render用ポート
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
