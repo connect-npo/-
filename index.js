@@ -26,14 +26,13 @@ function handleEvent(event) {
     return Promise.resolve(null);
   }
 
-  const messageText = event.message.text.toLowerCase();
+  const messageText = event.message.text;
   let responseText = '';
 
   if (messageText.includes('ありがとう')) {
     responseText = 'こちらこそ、いつでもご相談くださいね。';
   } else if (messageText.includes('しんどい')) {
     responseText = 'つらい気持ちを話してくれてありがとう。無理しないでくださいね。';
-    // 🔜 グループ通知機能は次のステップで追加可能
   } else if (messageText.includes('こんにちは')) {
     responseText = 'こんにちは！ご相談ありがとうございます。';
   } else {
