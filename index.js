@@ -1,12 +1,12 @@
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
-require('dotenv').config(); // 環境変数を読み込み（Renderでは任意）
+require('dotenv').config();
 
 const app = express();
 app.use(express.json());
 
-// Renderの「環境」設定画面で以下のキーを正しく設定してください
+// 環境変数
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET
@@ -14,7 +14,7 @@ const config = {
 
 const client = new Client(config);
 
-// 危険ワード一覧（自由に編集可）
+// 危険ワード
 const dangerWords = [
   'しにたい', '死にたい', '自殺', '消えたい', 'いなくなりたい', '助けて', '限界',
   '働きすぎ', 'つらい', '苦しい', '疲れた', '眠れない', '孤独', '絶望',
@@ -25,24 +25,21 @@ const dangerWords = [
   '誰もわかってくれない', 'もうだめ', '死にたいです', '人生終わった', '逃げたい', '死にたくなる'
 ];
 
-// LINEグループID（あなたのグループIDに置き換え済）
 const groupId = 'C9ff658373801593d72ccbf1a1f09ab49';
 
-// Webhookエンドポイント
 app.post('/webhook', middleware(config), async (req, res) => {
-  const events = req.body.events;
+  try {
+    const events = req.body.events;
 
-  for (const event of events) {
-    if (event.type === 'message' && event.message.type === 'text') {
-      const userMessage = event.message.text;
-      const replyToken = event.replyToken;
+    for (const event of events) {
+      if (event.type === 'message' && event.message.type === 'text') {
+        const userMessage = event.message.text;
+        const replyToken = event.replyToken;
 
-      // 危険ワード検出
-      const matchedWord = dangerWords.find(word => userMessage.includes(word));
+        // 危険ワード検出
+        const matchedWord = dangerWords.find(word => userMessage.includes(word));
 
-      // グループへ通知
-      if (matchedWord) {
-        try {
+        if (matchedWord) {
           await axios.post(
             'https://api.line.me/v2/bot/message/push',
             {
@@ -61,25 +58,26 @@ app.post('/webhook', middleware(config), async (req, res) => {
               }
             }
           );
-        } catch (err) {
-          console.error('グループ通知エラー:', err.message);
         }
+
+        // ユーザーに返信
+        await client.replyMessage(replyToken, [
+          {
+            type: 'text',
+            text: '大丈夫ですか？ご無理なさらず、少しずつ進んでいきましょう。'
+          }
+        ]);
       }
-
-      // ユーザーへの返信
-      await client.replyMessage(replyToken, [
-        {
-          type: 'text',
-          text: '大丈夫ですか？ご無理なさらず、少しずつ進んでいきましょう。'
-        }
-      ]);
     }
-  }
 
-  res.sendStatus(200);
+    // 成功時はLINEに「200 OK」を返す
+    res.sendStatus(200);
+  } catch (err) {
+    console.error('❌ Webhook全体エラー:', err);
+    res.status(500).end(); // LINEに500エラー返す（これが今出てる）
+  }
 });
 
-// サーバー起動
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`✅ Server running on port ${port}`);
