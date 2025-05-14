@@ -14,9 +14,13 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 👇 グループ通知用（見つかったらここを更新）
-const GROUP_ID_FOR_ALERT = ''; // 例: 'C1234567890abcdef1234567890abcdef'
+// 通知を送るグループID（ログから取得したIDに置き換えてください）
+const GROUP_ID = 'C9ff65837380159d372ccbf1a0189a49';
 
+// 特定ワードに反応するパターン
+const alertKeywords = ['死にたい', 'しんどい', 'つらい', '消えたい', '生きてる意味'];
+
+// メイン処理
 app.post('/webhook', middleware(config), async (req, res) => {
   try {
     const results = await Promise.all(req.body.events.map(handleEvent));
@@ -33,48 +37,34 @@ async function handleEvent(event) {
   }
 
   const userMessage = event.message.text;
-  const source = event.source;
 
-  // 👀 ログで groupId を見つけるためのヒント
-  if (source && source.groupId) {
-    console.log('✅ グループID検出:', source.groupId);
-  }
-
-  // 🚨 特定ワード検出時に通知
-  const keywords = ['しにたい', '死にたい', 'つらい', '消えたい', '自殺'];
-  const alertMatched = keywords.some(word => userMessage.includes(word));
-
-  if (alertMatched) {
-    const alertText = `🚨 ユーザーから気になる言葉が届きました:\n「${userMessage}」`;
-
-    if (GROUP_ID_FOR_ALERT && GROUP_ID_FOR_ALERT.length > 0) {
-      try {
-        await client.pushMessage(GROUP_ID_FOR_ALERT, {
-          type: 'text',
-          text: alertText,
-        });
-        console.log('🔔 グループに通知を送信しました');
-      } catch (e) {
-        console.error('❌ グループ通知エラー:', e);
-      }
-    } else {
-      console.log('⚠ グループIDが未設定のため通知をスキップ');
+  // 特定ワードが含まれていたらグループに通知
+  if (alertKeywords.some(word => userMessage.includes(word))) {
+    const alertMsg = `🚨 ご相談が届きました\n「${userMessage}」\n📞至急ご確認ください：090-4839-3313`;
+    try {
+      await client.pushMessage(GROUP_ID, {
+        type: 'text',
+        text: alertMsg,
+      });
+      console.log('✅ グループに通知を送りました');
+    } catch (err) {
+      console.error('❌ グループ通知に失敗しました', err);
     }
   }
 
-  // ChatGPT応答処理
+  // ChatGPTに相談文を送信
   try {
     const chatResponse = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
         {
           role: 'system',
-          content: 'あなたは思いやりのある相談アドバイザーです。やさしく温かく、短く答えてください。絵文字も少し使ってください。'
+          content: 'あなたは優しい相談アドバイザー「こころちゃん」です。小学生にもわかるように、絵文字をまじえた思いやりある言葉で短く返答してください。',
         },
         {
           role: 'user',
-          content: userMessage
-        }
+          content: userMessage,
+        },
       ],
     });
 
@@ -88,12 +78,12 @@ async function handleEvent(event) {
     console.error('OpenAI API Error:', err);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'ごめんなさい、ちょっとうまく答えられませんでした🙏 また気軽に話しかけてくださいね。',
+      text: 'ごめんなさい💦 うまく応答できませんでした。しばらくしてもう一度ためしてね🍀',
     });
   }
 }
 
-// 🚪 Renderが必要とするポート
+// ポート設定
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
