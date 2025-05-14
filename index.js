@@ -1,19 +1,20 @@
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
-require('dotenv').config();
+require('dotenv').config(); // 環境変数を読み込み（Renderでは任意）
 
 const app = express();
 app.use(express.json());
 
+// Renderの「環境」設定画面で以下のキーを正しく設定してください
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 
-
 const client = new Client(config);
 
+// 危険ワード一覧（自由に編集可）
 const dangerWords = [
   'しにたい', '死にたい', '自殺', '消えたい', 'いなくなりたい', '助けて', '限界',
   '働きすぎ', 'つらい', '苦しい', '疲れた', '眠れない', '孤独', '絶望',
@@ -24,8 +25,10 @@ const dangerWords = [
   '誰もわかってくれない', 'もうだめ', '死にたいです', '人生終わった', '逃げたい', '死にたくなる'
 ];
 
+// LINEグループID（あなたのグループIDに置き換え済）
 const groupId = 'C9ff658373801593d72ccbf1a1f09ab49';
 
+// Webhookエンドポイント
 app.post('/webhook', middleware(config), async (req, res) => {
   const events = req.body.events;
 
@@ -34,7 +37,10 @@ app.post('/webhook', middleware(config), async (req, res) => {
       const userMessage = event.message.text;
       const replyToken = event.replyToken;
 
+      // 危険ワード検出
       const matchedWord = dangerWords.find(word => userMessage.includes(word));
+
+      // グループへ通知
       if (matchedWord) {
         try {
           await axios.post(
@@ -60,6 +66,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
         }
       }
 
+      // ユーザーへの返信
       await client.replyMessage(replyToken, [
         {
           type: 'text',
@@ -72,7 +79,8 @@ app.post('/webhook', middleware(config), async (req, res) => {
   res.sendStatus(200);
 });
 
+// サーバー起動
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+  console.log(`✅ Server running on port ${port}`);
 });
