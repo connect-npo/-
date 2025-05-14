@@ -29,11 +29,11 @@ function handleEvent(event) {
   const messageText = event.message.text;
   let responseText = '';
 
-  if (messageText.includes('ありがとう')) {
+  if (/ありがとう/.test(messageText)) {
     responseText = 'こちらこそ、いつでもご相談くださいね。';
-  } else if (messageText.includes('しんどい')) {
+  } else if (/しんどい|つらい/.test(messageText)) {
     responseText = 'つらい気持ちを話してくれてありがとう。無理しないでくださいね。';
-  } else if (messageText.includes('こんにちは')) {
+  } else if (/こんにちは|こんばんわ|こんばんは/.test(messageText)) {
     responseText = 'こんにちは！ご相談ありがとうございます。';
   } else {
     responseText = 'メッセージを受け取りました。お話ありがとうございます。';
