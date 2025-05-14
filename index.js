@@ -1,23 +1,20 @@
-const express = require('express');
-const axios = require('axios');
-const dotenv = require('dotenv');
-const { Client, middleware } = require('@line/bot-sdk');
+import express from 'express';
+import axios from 'axios';
+import { config as dotenvConfig } from 'dotenv';
+import { Client, middleware } from '@line/bot-sdk';
 
-// 環境変数を読み込む
-dotenv.config();
+dotenvConfig(); // .envファイルの読み込み
+
+const app = express();
+app.use(express.json());
 
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.CHANNEL_SECRET
 };
 
-const app = express();
-app.use(express.json());
-app.use(middleware(config));
-
 const client = new Client(config);
 
-// 危険ワード一覧
 const dangerWords = [
   'しにたい', '死にたい', '自殺', '消えたい', 'いなくなりたい', '助けて', '限界',
   '働きすぎ', 'つらい', '苦しい', '疲れた', '眠れない', '孤独', '絶望',
@@ -30,7 +27,7 @@ const dangerWords = [
 
 const groupId = 'C9ff658373801593d72ccbf1a1f09ab49';
 
-app.post('/webhook', async (req, res) => {
+app.post('/webhook', middleware(config), async (req, res) => {
   const events = req.body.events;
 
   for (const event of events) {
@@ -39,7 +36,6 @@ app.post('/webhook', async (req, res) => {
       const replyToken = event.replyToken;
 
       const matchedWord = dangerWords.find(word => userMessage.includes(word));
-
       if (matchedWord) {
         try {
           await axios.post(
@@ -56,7 +52,7 @@ app.post('/webhook', async (req, res) => {
             {
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${process.env.CHANNEL_ACCESS_TOKEN}`
+                'Authorization': `Bearer ${config.channelAccessToken}`
               }
             }
           );
