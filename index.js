@@ -1,3 +1,5 @@
+// LINE Bot + ChatGPT連携 + 特定ワード検知 + グループIDログ出力対応
+
 import express from 'express';
 import { middleware, Client } from '@line/bot-sdk';
 import { OpenAI } from 'openai';
@@ -14,9 +16,6 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 👇 グループ通知用（実際のIDに変更してください）
-const GROUP_ID = 'YOUR_GROUP_ID_HERE'; // 例: 'C4f3c5a5f8a9dxxxxx'
-
 app.post('/webhook', middleware(config), async (req, res) => {
   try {
     const results = await Promise.all(req.body.events.map(handleEvent));
@@ -28,47 +27,40 @@ app.post('/webhook', middleware(config), async (req, res) => {
 });
 
 async function handleEvent(event) {
+  console.log('event source:', event.source); // 🔍 groupIdなどを表示
+
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
   }
 
-  const userMessage = event.message.text.toLowerCase();
+  const userMessage = event.message.text;
+  const lowered = userMessage.toLowerCase();
 
-  // NGワードリスト（SOS検知）
-  const ngWords = ['しんどい', '死にたい', 'つらい', '消えたい', 'もうだめ'];
-  const foundNgWord = ngWords.find(word => userMessage.includes(word));
+  // 📢 特定ワードを含む場合はグループ通知＋個別メッセージ
+  if (lowered.includes('しにたい') || lowered.includes('死にたい') || lowered.includes('つらい') || lowered.includes('しんどい')) {
+    const phoneText = 'とても心配です。今すぐ相談できます → 090-4839-3313 📞';
 
-  // NGワード対応（通知＆特別返信）
-  if (foundNgWord) {
-    // グループ通知（関係者LINEグループへ）
-    await client.pushMessage(GROUP_ID, {
-      type: 'text',
-      text: `⚠️ NGワード検知: 「${foundNgWord}」が投稿されました。すぐに確認してください。`,
-    });
+    // ※ここにグループ通知を入れるには groupId を確認して設定が必要です
+    // 例: await client.pushMessage('YOUR_GROUP_ID', { type: 'text', text: `⚠️ 注意: ${userMessage}` });
 
-    // 本人へ優しい言葉と連絡先
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: `心配しています…ひとりで抱えこまないでね。\nわたしたちはここにいます。\n📞 090-4839-3313`,
+      text: `${phoneText}\nこころちゃんがいつでも寄り添います 🌸`,
     });
   }
 
-  // ChatGPTでやさしい「こころちゃん」の返答
   try {
     const chatResponse = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: 'gpt-3.5-turbo',
       messages: [
         {
-          role: "system",
-          content: "あなたは『こころちゃん』という14歳のやさしい相談アドバイザーです。\
-相談してくれた人に安心感とあたたかさを伝えるように、\
-短くやさしい言葉で答えてください。相手の気持ちを否定せず、そっと寄り添ってください。\
-🌸や🫧など、やさしい絵文字を1つだけ添えてください。"
+          role: 'system',
+          content: 'あなたは思いやりのある相談アドバイザーです。短く、やさしく、少しだけ絵文字を使って答えてください。',
         },
         {
-          role: "user",
-          content: userMessage
-        }
+          role: 'user',
+          content: userMessage,
+        },
       ],
     });
 
@@ -79,15 +71,15 @@ async function handleEvent(event) {
       text: replyText,
     });
   } catch (err) {
-    console.error('OpenAI API Error:', err.response?.data || err.message || err);
+    console.error('OpenAI API Error:', err);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'ごめんなさい、うまく応答できませんでした。',
+      text: 'ごめんなさい、うまく応答できませんでした🙏',
     });
   }
 }
 
-// ポート設定
+// Render用ポート
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
