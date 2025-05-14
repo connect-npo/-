@@ -5,7 +5,7 @@ const { Client, middleware } = require('@line/bot-sdk');
 const app = express();
 app.use(express.json());
 
-// ✅ 最新のアクセストークンとチャネルシークレットを設定
+// ✅ 最新チャネルシークレットとアクセストークン（以前のアクセストークン使用）
 const config = {
   channelAccessToken: '2eGPRk98EDRrCndZQpuyb+ZV5KnSVhwRWovMUQtYfn0VnR9m4SNPKlANmQGkdk/OqX3sTrqlRFtlYAQydhLUWVyz6BbCAbY8xd/orUSsLPLZuv7b5z2Mn89B49BKIlCytTTXU/GMBFA+TIQGnhA8jgdB04t89/1O/w1cDnyilFU=',
   channelSecret: 'b92f9268ac74443181ffdd7ddbcac7c7'
@@ -13,7 +13,7 @@ const config = {
 
 const client = new Client(config);
 
-// 危険ワード一覧（必要に応じて変更可能）
+// 危険ワード一覧
 const dangerWords = [
   'しにたい', '死にたい', '自殺', '消えたい', 'いなくなりたい', '助けて', '限界',
   '働きすぎ', 'つらい', '苦しい', '疲れた', '眠れない', '孤独', '絶望',
@@ -24,7 +24,7 @@ const dangerWords = [
   '誰もわかってくれない', 'もうだめ', '死にたいです', '人生終わった', '逃げたい', '死にたくなる'
 ];
 
-// グループ通知先（任意で設定）
+// 通知先グループID（必要に応じて書き換え）
 const groupId = 'C9ff658373801593d72ccbf1a1f09ab49';
 
 // Webhookエンドポイント
@@ -37,7 +37,6 @@ app.post('/webhook', middleware(config), async (req, res) => {
         const userMessage = event.message.text;
         const replyToken = event.replyToken;
 
-        // 危険ワード検出
         const matchedWord = dangerWords.find(word => userMessage.includes(word));
 
         if (matchedWord) {
@@ -48,7 +47,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
               messages: [
                 {
                   type: 'text',
-                  text: `⚠️ 重要メッセージを検知: 「${matchedWord}」\n📞 ご連絡は 090-4839-3313 までお願いいたします。`
+                  text: `⚠️ 危険ワードを検知しました: 「${matchedWord}」\n📞 至急対応してください。090-4839-3313`
                 }
               ]
             },
@@ -61,11 +60,10 @@ app.post('/webhook', middleware(config), async (req, res) => {
           );
         }
 
-        // 応答メッセージ
         await client.replyMessage(replyToken, [
           {
             type: 'text',
-            text: '大丈夫ですか？ ご無理なさらず、少しずつ進んでいきましょう。'
+            text: '大丈夫ですか？ご無理なさらず、少しずつ進んでいきましょう。'
           }
         ]);
       }
@@ -73,12 +71,12 @@ app.post('/webhook', middleware(config), async (req, res) => {
 
     res.sendStatus(200);
   } catch (err) {
-    console.error('❌ Webhook全体エラー:', err);
+    console.error('❌ Webhook処理エラー:', err);
     res.status(500).end();
   }
 });
 
-// サーバー起動
+// サーバー起動（Renderで使うポート）
 const port = process.env.PORT || 10000;
 app.listen(port, () => {
   console.log(`✅ Server running on port ${port}`);
