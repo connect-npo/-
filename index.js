@@ -3,17 +3,15 @@ const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
 
 const app = express();
-app.use(express.json());
 
-// ✅ 最新のチャネルアクセストークンとシークレット
+// ✅ middleware は express.json() より前に実行
 const config = {
-  channelAccessToken: 'bfxuZBy6S6QR4gygFktPCodiEft79uS4obNBnHUik3w02Q9ZIy+0Y2cg7VqTRjqkqX3sTrqlRFtlYAQydhLUWVyz6BbCAbY8xd/orUSsLPIP45T24i/xAXX6Vmk/cifDGQJl9+/hWl7ynKMrFCiePAdB04t89/1O/w1cDnyilFU=',
-  channelSecret: 'b92f9268ac74443181ffdd7ddbcac7c7'
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 
 const client = new Client(config);
 
-// 危険ワード一覧
 const dangerWords = [
   'しにたい', '死にたい', '自殺', '消えたい', 'いなくなりたい', '助けて', '限界',
   '働きすぎ', 'つらい', '苦しい', '疲れた', '眠れない', '孤独', '絶望',
@@ -24,11 +22,9 @@ const dangerWords = [
   '誰もわかってくれない', 'もうだめ', '死にたいです', '人生終わった', '逃げたい', '死にたくなる'
 ];
 
-// 通知先グループID
 const groupId = 'C9ff658373801593d72ccbf1a1f09ab49';
 
-// Webhookエンドポイント
-app.post('/webhook', middleware(config), async (req, res) => {
+app.post('/webhook', middleware(config), express.json(), async (req, res) => {
   try {
     const events = req.body.events;
 
@@ -76,7 +72,6 @@ app.post('/webhook', middleware(config), async (req, res) => {
   }
 });
 
-// サーバー起動（Render用）
 const port = process.env.PORT || 10000;
 app.listen(port, () => {
   console.log(`✅ Server running on port ${port}`);
