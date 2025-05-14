@@ -1,6 +1,6 @@
-const express = require('express');
-const { middleware, Client } = require('@line/bot-sdk');
-const { OpenAI } = require('openai');
+import express from 'express';
+import { middleware, Client } from '@line/bot-sdk';
+import { OpenAI } from 'openai';
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -61,7 +61,7 @@ async function handleEvent(event) {
   }
 }
 
-// Renderが必要とするポートバインド
+// Renderが必要とするポート
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
