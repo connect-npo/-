@@ -5,15 +5,15 @@ const { Client, middleware } = require('@line/bot-sdk');
 const app = express();
 app.use(express.json());
 
-// ✅ 環境変数を直書き（テスト用）
+// ✅ 新しいアクセストークンとチャネルシークレット
 const config = {
-  channelAccessToken: 'UBDFI2VPgBqjGOJyTuFtaevpm0+iaWdkntiFj8oJqjfdQyMXd8wSNioyD2MNJE89qX3sTrqlRFtlYAQydhLUWVyz6BbCAbY8xd/orUSsLPKhHMJR3zZ/i9j10Db7K865vgzw/tROKNQh6LrTmekVUwdB04t89/1O/w1cDnyilFU=',
-  channelSecret: 'b7784981dc6fd451d69de967237fc614'
+  channelAccessToken: '2eGPRk98EDRrCndZQpuyb+ZV5KnSVhwRWovMUQtYfn0VnR9m4SNPKlANmQGkdk/OqX3sTrqlRFtlYAQydhLUWVyz6BbCAbY8xd/orUSsLPLZuv7b5z2Mn89B49BKIlCytTTXU/GMBFA+TIQGnhA8jgdB04t89/1O/w1cDnyilFU=',
+  channelSecret: 'b92f9268ac74443181ffdd7ddbcac7c7'
 };
 
 const client = new Client(config);
 
-// ✅ 危険ワード一覧（カスタマイズ可能）
+// ✅ 危険ワード一覧（必要に応じて変更OK）
 const dangerWords = [
   'しにたい', '死にたい', '自殺', '消えたい', 'いなくなりたい', '助けて', '限界',
   '働きすぎ', 'つらい', '苦しい', '疲れた', '眠れない', '孤独', '絶望',
@@ -24,10 +24,10 @@ const dangerWords = [
   '誰もわかってくれない', 'もうだめ', '死にたいです', '人生終わった', '逃げたい', '死にたくなる'
 ];
 
-// ✅ 通知先グループID（LINEグループ）
+// ✅ LINEグループ通知先ID（必要に応じて設定）
 const groupId = 'C9ff658373801593d72ccbf1a1f09ab49';
 
-// ✅ Webhook エンドポイント
+// ✅ Webhookエンドポイント
 app.post('/webhook', middleware(config), async (req, res) => {
   try {
     const events = req.body.events;
@@ -37,7 +37,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
         const userMessage = event.message.text;
         const replyToken = event.replyToken;
 
-        // 危険ワード検出
+        // 危険ワードチェック
         const matchedWord = dangerWords.find(word => userMessage.includes(word));
 
         if (matchedWord) {
@@ -61,7 +61,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
           );
         }
 
-        // 応答メッセージ（返信）
+        // 通常返信（エコー応答）
         await client.replyMessage(replyToken, [
           {
             type: 'text',
@@ -71,16 +71,16 @@ app.post('/webhook', middleware(config), async (req, res) => {
       }
     }
 
-    // ✅ 成功時には必ず 200 を返す
+    // ✅ LINEに成功応答
     res.status(200).end();
   } catch (err) {
-    console.error('❌ Webhook全体エラー:', err);
+    console.error('❌ Webhook処理エラー:', err);
     res.status(500).end();
   }
 });
 
-// ✅ サーバー起動
-const port = process.env.PORT || 3000;
+// ✅ サーバー起動（Render用にポート10000を優先）
+const port = process.env.PORT || 10000;
 app.listen(port, () => {
   console.log(`✅ Server running on port ${port}`);
 });
