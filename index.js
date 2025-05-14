@@ -1,9 +1,7 @@
-import express from 'express';
-import axios from 'axios';
-import { config as dotenvConfig } from 'dotenv';
-import { Client, middleware } from '@line/bot-sdk';
-
-dotenvConfig(); // .envファイルの読み込み
+const express = require('express');
+const axios = require('axios');
+const { Client, middleware } = require('@line/bot-sdk');
+require('dotenv').config();
 
 const app = express();
 app.use(express.json());
