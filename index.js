@@ -5,9 +5,9 @@ const { Client, middleware } = require('@line/bot-sdk');
 const app = express();
 app.use(express.json());
 
-// ✅ 最新チャネルシークレットとアクセストークン（以前のアクセストークン使用）
+// ✅ 最新アクセストークンとチャネルシークレット
 const config = {
-  channelAccessToken: '2eGPRk98EDRrCndZQpuyb+ZV5KnSVhwRWovMUQtYfn0VnR9m4SNPKlANmQGkdk/OqX3sTrqlRFtlYAQydhLUWVyz6BbCAbY8xd/orUSsLPLZuv7b5z2Mn89B49BKIlCytTTXU/GMBFA+TIQGnhA8jgdB04t89/1O/w1cDnyilFU=',
+  channelAccessToken: 'bfxuZBy6S6QR4gygFktPCodiEft79uS4obNBnHUik3w02Q9ZIy+0Y2cg7VqTRjqkqX3sTrqlRFtlYAQydhLUWVyz6BbCAbY8xd/orUSsLPIP45T24i/xAXX6Vmk/cifDGQJl9+/hWl7ynKMrFCiePAdB04t89/1O/w1cDnyilFU=',
   channelSecret: 'b92f9268ac74443181ffdd7ddbcac7c7'
 };
 
@@ -24,7 +24,7 @@ const dangerWords = [
   '誰もわかってくれない', 'もうだめ', '死にたいです', '人生終わった', '逃げたい', '死にたくなる'
 ];
 
-// 通知先グループID（必要に応じて書き換え）
+// グループID（通知先）
 const groupId = 'C9ff658373801593d72ccbf1a1f09ab49';
 
 // Webhookエンドポイント
@@ -37,6 +37,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
         const userMessage = event.message.text;
         const replyToken = event.replyToken;
 
+        // 危険ワードを検出
         const matchedWord = dangerWords.find(word => userMessage.includes(word));
 
         if (matchedWord) {
@@ -60,6 +61,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
           );
         }
 
+        // 応答メッセージ
         await client.replyMessage(replyToken, [
           {
             type: 'text',
@@ -76,7 +78,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
   }
 });
 
-// サーバー起動（Renderで使うポート）
+// サーバー起動（Render用ポート）
 const port = process.env.PORT || 10000;
 app.listen(port, () => {
   console.log(`✅ Server running on port ${port}`);
