@@ -5,7 +5,7 @@ const { Client, middleware } = require('@line/bot-sdk');
 const app = express();
 app.use(express.json());
 
-// 環境変数（今回は直接埋め込み）
+// ✅ 環境変数を直書き（テスト用）
 const config = {
   channelAccessToken: 'UBDFI2VPgBqjGOJyTuFtaevpm0+iaWdkntiFj8oJqjfdQyMXd8wSNioyD2MNJE89qX3sTrqlRFtlYAQydhLUWVyz6BbCAbY8xd/orUSsLPKhHMJR3zZ/i9j10Db7K865vgzw/tROKNQh6LrTmekVUwdB04t89/1O/w1cDnyilFU=',
   channelSecret: 'b7784981dc6fd451d69de967237fc614'
@@ -13,7 +13,7 @@ const config = {
 
 const client = new Client(config);
 
-// 危険ワード一覧（必要に応じて追加・削除可能）
+// ✅ 危険ワード一覧（カスタマイズ可能）
 const dangerWords = [
   'しにたい', '死にたい', '自殺', '消えたい', 'いなくなりたい', '助けて', '限界',
   '働きすぎ', 'つらい', '苦しい', '疲れた', '眠れない', '孤独', '絶望',
@@ -24,10 +24,10 @@ const dangerWords = [
   '誰もわかってくれない', 'もうだめ', '死にたいです', '人生終わった', '逃げたい', '死にたくなる'
 ];
 
-// グループID（通知先グループ）
+// ✅ 通知先グループID（LINEグループ）
 const groupId = 'C9ff658373801593d72ccbf1a1f09ab49';
 
-// Webhookエンドポイント
+// ✅ Webhook エンドポイント
 app.post('/webhook', middleware(config), async (req, res) => {
   try {
     const events = req.body.events;
@@ -37,6 +37,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
         const userMessage = event.message.text;
         const replyToken = event.replyToken;
 
+        // 危険ワード検出
         const matchedWord = dangerWords.find(word => userMessage.includes(word));
 
         if (matchedWord) {
@@ -60,6 +61,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
           );
         }
 
+        // 応答メッセージ（返信）
         await client.replyMessage(replyToken, [
           {
             type: 'text',
@@ -69,14 +71,15 @@ app.post('/webhook', middleware(config), async (req, res) => {
       }
     }
 
-    res.sendStatus(200);
+    // ✅ 成功時には必ず 200 を返す
+    res.status(200).end();
   } catch (err) {
     console.error('❌ Webhook全体エラー:', err);
     res.status(500).end();
   }
 });
 
-// サーバー起動
+// ✅ サーバー起動
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`✅ Server running on port ${port}`);
