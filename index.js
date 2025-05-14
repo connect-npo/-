@@ -33,7 +33,7 @@ function handleEvent(event) {
     responseText = 'こちらこそ、いつでもご相談くださいね。';
   } else if (/しんどい|つらい/.test(messageText)) {
     responseText = 'つらい気持ちを話してくれてありがとう。無理しないでくださいね。';
-  } else if (/こんにちは|こんばんわ|こんばんは/.test(messageText)) {
+  } else if (/こんにちは|こんばんは|こんにちわ/.test(messageText)) {
     responseText = 'こんにちは！ご相談ありがとうございます。';
   } else {
     responseText = 'メッセージを受け取りました。お話ありがとうございます。';
