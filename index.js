@@ -26,15 +26,22 @@ function handleEvent(event) {
     return Promise.resolve(null);
   }
 
-  const responseText = 'こんにちは！ご相談ありがとうございます。';
+  const messageText = event.message.text.toLowerCase();
+  let responseText = '';
+
+  if (messageText.includes('ありがとう')) {
+    responseText = 'こちらこそ、いつでもご相談くださいね。';
+  } else if (messageText.includes('しんどい')) {
+    responseText = 'つらい気持ちを話してくれてありがとう。無理しないでくださいね。';
+    // 🔜 グループ通知機能は次のステップで追加可能
+  } else if (messageText.includes('こんにちは')) {
+    responseText = 'こんにちは！ご相談ありがとうございます。';
+  } else {
+    responseText = 'メッセージを受け取りました。お話ありがとうございます。';
+  }
 
   return client.replyMessage(event.replyToken, {
     type: 'text',
     text: responseText,
   });
 }
-
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log(`Server running on ${port}`);
-});
