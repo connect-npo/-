@@ -1,17 +1,23 @@
 const express = require('express');
 const axios = require('axios');
+const dotenv = require('dotenv');
 const { Client, middleware } = require('@line/bot-sdk');
+
+// 環境変数を読み込む
+dotenv.config();
+
+const config = {
+  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.CHANNEL_SECRET
+};
 
 const app = express();
 app.use(express.json());
-
-const config = {
-  channelAccessToken: 'CcR+KCvQBys6Cr0ZYmpVkXv/GJmW+7uuO6FC+M/Ml0bGSaHdLeKbR3YHVZmNgwuGqX3sTrqlRFtlYAQydhLUWVyz6BbCAbY8xd/orUSsLPI/qlb/t8DcHKV1dgpl7Jd3nqifSz8iTVxSgkNTPTupZQdB04t89/1O/w1cDnyilFU=',
-  channelSecret: 'c9b8ec33af29ae44345e0648bf33d4c0'
-};
+app.use(middleware(config));
 
 const client = new Client(config);
 
+// 危険ワード一覧
 const dangerWords = [
   'しにたい', '死にたい', '自殺', '消えたい', 'いなくなりたい', '助けて', '限界',
   '働きすぎ', 'つらい', '苦しい', '疲れた', '眠れない', '孤独', '絶望',
@@ -24,7 +30,7 @@ const dangerWords = [
 
 const groupId = 'C9ff658373801593d72ccbf1a1f09ab49';
 
-app.post('/webhook', middleware(config), async (req, res) => {
+app.post('/webhook', async (req, res) => {
   const events = req.body.events;
 
   for (const event of events) {
@@ -33,6 +39,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
       const replyToken = event.replyToken;
 
       const matchedWord = dangerWords.find(word => userMessage.includes(word));
+
       if (matchedWord) {
         try {
           await axios.post(
@@ -42,14 +49,14 @@ app.post('/webhook', middleware(config), async (req, res) => {
               messages: [
                 {
                   type: 'text',
-                  text: `\u26a0\ufe0f 重要メッセージを検知: 「${matchedWord}」\n\ud83d\udcde ご連絡は 090-4839-3313 までお願いいたします。`
+                  text: `⚠️ 重要メッセージを検知: 「${matchedWord}」\n📞 ご連絡は 090-4839-3313 までお願いいたします。`
                 }
               ]
             },
             {
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.channelAccessToken}`
+                'Authorization': `Bearer ${process.env.CHANNEL_ACCESS_TOKEN}`
               }
             }
           );
