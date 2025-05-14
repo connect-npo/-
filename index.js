@@ -14,17 +14,15 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 特定ワードに反応してグループ通知する設定
-const ALERT_KEYWORDS = ['しにたい', '死にたい', 'つらい', '消えたい'];
-const ADMIN_PHONE = '09048393313';
-const GROUP_ID_FOR_ALERT = 'ここに通知先グループID'; // ←ここは後で置き換える
+// 👇 グループ通知用（見つかったらここを更新）
+const GROUP_ID_FOR_ALERT = ''; // 例: 'C1234567890abcdef1234567890abcdef'
 
 app.post('/webhook', middleware(config), async (req, res) => {
   try {
     const results = await Promise.all(req.body.events.map(handleEvent));
     res.json(results);
   } catch (err) {
-    console.error('Webhook Error:', err);
+    console.error(err);
     res.status(500).end();
   }
 });
@@ -37,43 +35,44 @@ async function handleEvent(event) {
   const userMessage = event.message.text;
   const source = event.source;
 
-  // グループIDをログ出力
-  if (source.type === 'group' && source.groupId) {
+  // 👀 ログで groupId を見つけるためのヒント
+  if (source && source.groupId) {
     console.log('✅ グループID検出:', source.groupId);
   }
 
-  // NGワードチェック
-  const containsAlert = ALERT_KEYWORDS.some(word => userMessage.includes(word));
+  // 🚨 特定ワード検出時に通知
+  const keywords = ['しにたい', '死にたい', 'つらい', '消えたい', '自殺'];
+  const alertMatched = keywords.some(word => userMessage.includes(word));
 
-  if (containsAlert) {
-    const alertText = `⚠️ ご相談内容に重要ワードが含まれました。\n\n📩 内容:「${userMessage}」\n📞 至急連絡：${ADMIN_PHONE}`;
+  if (alertMatched) {
+    const alertText = `🚨 ユーザーから気になる言葉が届きました:\n「${userMessage}」`;
 
-    // グループ通知（通知先が設定されている場合のみ）
-    if (GROUP_ID_FOR_ALERT !== 'ここに通知先グループID') {
-      await client.pushMessage(GROUP_ID_FOR_ALERT, {
-        type: 'text',
-        text: alertText,
-      });
+    if (GROUP_ID_FOR_ALERT && GROUP_ID_FOR_ALERT.length > 0) {
+      try {
+        await client.pushMessage(GROUP_ID_FOR_ALERT, {
+          type: 'text',
+          text: alertText,
+        });
+        console.log('🔔 グループに通知を送信しました');
+      } catch (e) {
+        console.error('❌ グループ通知エラー:', e);
+      }
+    } else {
+      console.log('⚠ グループIDが未設定のため通知をスキップ');
     }
-
-    // 返信：やさしく反応
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: `🌸 大変そうですね…。\nあなたの話を聞けてうれしいです。\n必要なら ${ADMIN_PHONE} にもご連絡くださいね。`,
-    });
   }
 
-  // 通常応答（ChatGPT）
+  // ChatGPT応答処理
   try {
     const chatResponse = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: 'gpt-3.5-turbo',
       messages: [
         {
-          role: "system",
-          content: "あなたは思いやりのある相談アドバイザーです。短く、やさしく、温かく答えてください。"
+          role: 'system',
+          content: 'あなたは思いやりのある相談アドバイザーです。やさしく温かく、短く答えてください。絵文字も少し使ってください。'
         },
         {
-          role: "user",
+          role: 'user',
           content: userMessage
         }
       ],
@@ -89,13 +88,13 @@ async function handleEvent(event) {
     console.error('OpenAI API Error:', err);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'ごめんなさい、うまく応答できませんでした。🙇‍♀️',
+      text: 'ごめんなさい、ちょっとうまく答えられませんでした🙏 また気軽に話しかけてくださいね。',
     });
   }
 }
 
-// Render用ポート
+// 🚪 Renderが必要とするポート
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
