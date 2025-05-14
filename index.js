@@ -1,86 +1,80 @@
-import express from 'express';
-import { middleware, Client } from '@line/bot-sdk';
-import { OpenAI } from 'openai';
+const express = require('express');
+const axios = require('axios');
+const { Client, middleware } = require('@line/bot-sdk');
+
+const app = express();
+app.use(express.json());
 
 const config = {
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
+  channelAccessToken: 'CcR+KCvQBys6Cr0ZYmpVkXv/GJmW+7uuO6FC+M/Ml0bGSaHdLeKbR3YHVZmNgwuGqX3sTrqlRFtlYAQydhLUWVyz6BbCAbY8xd/orUSsLPI/qlb/t8DcHKV1dgpl7Jd3nqifSz8iTVxSgkNTPTupZQdB04t89/1O/w1cDnyilFU=',
+  channelSecret: 'c9b8ec33af29ae44345e0648bf33d4c0'
 };
 
 const client = new Client(config);
-const app = express();
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const dangerWords = [
+  'しにたい', '死にたい', '自殺', '消えたい', 'いなくなりたい', '助けて', '限界',
+  '働きすぎ', 'つらい', '苦しい', '疲れた', '眠れない', '孤独', '絶望',
+  'リストカット', 'リスカ', 'OD', 'オーバードーズ',
+  '殴られる', 'たたかれる', '暴力', '家庭内暴力', 'DV', '虐待',
+  'いじめ', '無視される', '仲間はずれ', '学校にいけない', '登校できない',
+  'お金がない', 'お金が足りない', '借金', '貧乏', '生活できない',
+  '誰もわかってくれない', 'もうだめ', '死にたいです'
+];
 
-// グループIDとNGワード一覧
+// LINEグループID
 const groupId = 'C9ff658373801593d72ccbf1a1f09ab49';
-const ngWords = ['しにたい', '死にたい', 'つらい', '疲れた', 'やめたい', '消えたい', '苦しい'];
 
 app.post('/webhook', middleware(config), async (req, res) => {
-  try {
-    const results = await Promise.all(req.body.events.map(handleEvent));
-    res.json(results);
-  } catch (err) {
-    console.error(err);
-    res.status(500).end();
-  }
-});
+  const events = req.body.events;
 
-async function handleEvent(event) {
-  if (event.type !== 'message' || event.message.type !== 'text') {
-    return Promise.resolve(null);
-  }
+  for (const event of events) {
+    if (event.type === 'message' && event.message.type === 'text') {
+      const userMessage = event.message.text;
+      const replyToken = event.replyToken;
 
-  const userMessage = event.message.text;
+      // 危険ワード検知
+      const matchedWord = dangerWords.find(word => userMessage.includes(word));
+      if (matchedWord) {
+        // 通知メッセージ送信（グループ宛）
+        try {
+          await axios.post(
+            'https://api.line.me/v2/bot/message/push',
+            {
+              to: groupId,
+              messages: [
+                {
+                  type: 'text',
+                  text: `⚠️ 重要メッセージを検知: 「${matchedWord}」\n📞 ご連絡は 090-4839-3313 までお願いいたします。`
+                }
+              ]
+            },
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${config.channelAccessToken}`
+              }
+            }
+          );
+        } catch (err) {
+          console.error('グループ通知エラー:', err.message);
+        }
+      }
 
-  // NGワードが含まれていたらグループに通知
-  const matchedNgWord = ngWords.find((word) => userMessage.includes(word));
-  if (matchedNgWord) {
-    try {
-      await client.pushMessage(groupId, {
-        type: 'text',
-        text: `🔔 重要メッセージを検知：「${userMessage}」\n📞 ご連絡は 090-4839-3313 までお願いいたします。`,
-      });
-    } catch (notifyErr) {
-      console.error('グループ通知に失敗しました:', notifyErr);
+      // 通常の返信
+      await client.replyMessage(replyToken, [
+        {
+          type: 'text',
+          text: '大丈夫ですか？ご無理なさらず、少しずつ進んでいきましょう。'
+        }
+      ]);
     }
   }
 
-  // ChatGPTからの返信
-  try {
-    const chatResponse = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: [
-        {
-          role: 'system',
-          content: 'あなたは思いやりのある相談アドバイザーです。短く、やさしく、励ましの言葉と絵文字を添えて答えてください。',
-        },
-        {
-          role: 'user',
-          content: userMessage,
-        },
-      ],
-    });
+  res.sendStatus(200);
+});
 
-    const replyText = chatResponse.choices[0].message.content;
-
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: replyText,
-    });
-  } catch (err) {
-    console.error('OpenAI API Error:', err);
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: 'ごめんなさい、うまく応答できませんでした。',
-    });
-  }
-}
-
-// Renderが必要とするポート設定
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
 });
