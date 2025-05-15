@@ -1,3 +1,4 @@
+// index.js
 const express = require('express');
 const axios = require('axios');
 const { Configuration, OpenAIApi } = require('openai');
@@ -47,7 +48,9 @@ app.post('/webhook', middleware(config), express.json(), async (req, res) => {
               messages: [
                 {
                   type: 'text',
-                  text: `⚠️ 危険ワードを検知しました: 「${matchedWord}」\n📞 至急対応してください。\n📱 090-4839-3313`
+                  text: `⚠️ 危険ワードを検知しました: 「${matchedWord}」
+📞 至急対応してください。
+📱 090-4839-3313`
                 }
               ]
             },
@@ -75,7 +78,7 @@ app.post('/webhook', middleware(config), express.json(), async (req, res) => {
           ]
         });
 
-        const replyText = completion.data.choices[0].message.content.trim();
+        const replyText = completion.data.choices[0].message.content;
 
         await client.replyMessage(replyToken, [
           {
