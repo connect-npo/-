@@ -26,8 +26,11 @@ const dangerWords = [
 app.use(middleware(config));
 app.use(express.json());
 
-// Webhookエンドポイント
+// Webhookエンドポイント（ログ付き）
 app.post('/webhook', async (req, res) => {
+  console.log('Webhook headers:', req.headers);
+  console.log('Webhook body:', req.body);
+
   try {
     const events = req.body.events;
     for (const event of events) {
