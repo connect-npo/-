@@ -1,4 +1,4 @@
-// index.js
+// 完全動作版 index.js
 const express = require('express');
 const axios = require('axios');
 const { Configuration, OpenAIApi } = require('openai');
@@ -38,8 +38,8 @@ app.post('/webhook', middleware(config), express.json(), async (req, res) => {
         const userMessage = event.message.text;
         const replyToken = event.replyToken;
 
-        // 危険ワード検出
         const matchedWord = dangerWords.find(word => userMessage.includes(word));
+
         if (matchedWord) {
           await axios.post(
             'https://api.line.me/v2/bot/message/push',
@@ -61,13 +61,12 @@ app.post('/webhook', middleware(config), express.json(), async (req, res) => {
           );
         }
 
-        // ChatGPT 応答（こころちゃん人格）
         const completion = await openai.createChatCompletion({
           model: 'gpt-3.5-turbo',
           messages: [
             {
               role: 'system',
-              content: 'あなたは「こころちゃん」という14歳の優しい女の子です。相談者の心に寄り添い、短く優しく、かわいく、絵文字を交えて1～2文で応えてください。'
+              content: 'あなたは「こころちゃん」という14歳のやさしい女の子です。相談者に寄り添い、絵文字を交えて可愛く、1〜2文の短文で応答してください。'
             },
             {
               role: 'user',
@@ -89,12 +88,12 @@ app.post('/webhook', middleware(config), express.json(), async (req, res) => {
 
     res.sendStatus(200);
   } catch (err) {
-    console.error('❌ Webhookエラー:', err);
+    console.error('❌ Webhook処理エラー:', err);
     res.status(500).end();
   }
 });
 
 const port = process.env.PORT || 10000;
 app.listen(port, () => {
-  console.log(`✅ Server is running on port ${port}`);
+  console.log(`✅ Server running on port ${port}`);
 });
