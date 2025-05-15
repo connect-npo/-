@@ -1,3 +1,22 @@
-# Connect LINE Bot
+# コネクトそうだんチャット（こころちゃんBot）
 
-This is a simple LINE Bot server using Express and @line/bot-sdk.
+このBotは、子どもや若者の悩みを優しく受け止めるLINEチャットBotです。  
+可愛くて優しいキャラクター「こころちゃん（14さい）」が、あなたの気持ちによりそいます。
+
+## 🔧 技術構成
+- Node.js（Express）
+- LINE Messaging API
+- ChatGPT API（gpt-3.5）
+- Render または Replit でデプロイ
+
+## 🚀 機能
+- キーワード検出（例：「いじめ」「つらい」など）
+- AI応答（1日5回まで）
+- 危険ワード通知 → 管理者グループ通知
+
+## 📎 使用方法
+1. LINE Bot を友だち追加
+2. メッセージを送信すると、こころちゃんがやさしく返事してくれます
+
+## 💌 お問い合わせ
+`connect-npo.org` サポートチームまで
