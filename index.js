@@ -19,18 +19,17 @@ const dangerWords = [
   "殺される", "暴力", "虐待", "誰にも言えない", "死のうと思う", "消えてしまいたい"
 ];
 
-// LINE署名検証用（生データを保持）
+// Webhookエンドポイント（署名検証あり）
 app.post('/webhook', express.raw({ type: 'application/json' }), middleware(config), async (req, res) => {
   const events = req.body.events;
   res.status(200).send('OK');
 
   for (const event of events) {
-    console.log(JSON.stringify(event, null, 2)); // userIdなどログ出力
+    console.log(JSON.stringify(event, null, 2)); // LINE ID出力
 
     if (event.type === 'message' && event.message.type === 'text') {
       const text = event.message.text;
 
-      // 危険ワード検知
       const found = dangerWords.find(word => text.includes(word));
       if (found) {
         await client.replyMessage(event.replyToken, {
@@ -39,9 +38,9 @@ app.post('/webhook', express.raw({ type: 'application/json' }), middleware(confi
         });
         await client.pushMessage(GROUP_ID, {
           type: 'text',
-          text: `[通報] 危険ワード「${found}」を検出しました：\n${text}`
+          text: `[通報] 危険ワード「${found}」検出：\n${text}`
         });
-        continue;
+        return; // ← ここで処理終了して多重返信防止
       }
 
       // ChatGPT応答
@@ -62,11 +61,12 @@ app.post('/webhook', express.raw({ type: 'application/json' }), middleware(confi
           text: aiText
         });
       } catch (error) {
-        console.error("OpenAIエラー:", error.message);
+        console.error("ChatGPTエラー:", error.message);
         await client.replyMessage(event.replyToken, {
           type: 'text',
           text: 'ちょっと混み合ってるみたい…また後で話そうね。'
         });
+        return; // ← これで多重返信を防止！！
       }
     }
   }
