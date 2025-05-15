@@ -1,20 +1,21 @@
+// index.js
 const express = require('express');
 const axios = require('axios');
-const { Client, middleware } = require('@line/bot-sdk');
 const { Configuration, OpenAIApi } = require('openai');
+const { Client, middleware } = require('@line/bot-sdk');
 require('dotenv').config();
 
 const app = express();
+
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET
 };
-const client = new Client(config);
 
-const configuration = new Configuration({
-  apiKey: process.env.OPENAI_API_KEY
-});
-const openai = new OpenAIApi(configuration);
+const client = new Client(config);
+const openai = new OpenAIApi(
+  new Configuration({ apiKey: process.env.OPENAI_API_KEY })
+);
 
 const dangerWords = [
   'しにたい', '死にたい', '自殺', '消えたい', 'いなくなりたい', '助けて', '限界',
@@ -26,7 +27,7 @@ const dangerWords = [
   '誰もわかってくれない', 'もうだめ', '死にたいです', '人生終わった', '逃げたい', '死にたくなる'
 ];
 
-const groupId = process.env.LINE_GROUP_ID || 'C9ff658373801593d72ccbf1a1f09ab49';
+const groupId = process.env.LINE_GROUP_ID; // グループIDは環境変数で管理
 
 app.post('/webhook', middleware(config), express.json(), async (req, res) => {
   try {
@@ -40,6 +41,7 @@ app.post('/webhook', middleware(config), express.json(), async (req, res) => {
         const matchedWord = dangerWords.find(word => userMessage.includes(word));
 
         if (matchedWord) {
+          // グループ通知
           await axios.post(
             'https://api.line.me/v2/bot/message/push',
             {
@@ -54,47 +56,33 @@ app.post('/webhook', middleware(config), express.json(), async (req, res) => {
             {
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.channelAccessToken}`
+                Authorization: `Bearer ${config.channelAccessToken}`
               }
             }
           );
-
-          await client.replyMessage(replyToken, [
-            {
-              type: 'text',
-              text: 'つらいときは、すぐに大人の人に話してね。どうしようもないときは、こちらに連絡してね📞 090-4839-3313'
-            }
-          ]);
-
-          continue;
         }
 
-        const systemPrompt = `
-あなたは14歳の女の子「こころちゃん」です。
-LINEチャットで話しかけてくれた人に、やさしく寄り添って会話してください。
-・やさしく、あたたかく、安心感のある口調で話します。
-・語尾はやわらかく、親しみのある14歳の女の子らしい雰囲気にします。
-・1〜2文程度で短くまとめます。
-・絵文字は1〜2個までにしてください（🌸✨😊😌💖など）。
-・深刻な悩みには丁寧に、明るい話にはやわらかく応じてください。
-`;
-
+        // ChatGPTで返信（こころちゃん人格）
         const completion = await openai.createChatCompletion({
           model: 'gpt-3.5-turbo',
           messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userMessage }
+            {
+              role: 'system',
+              content: 'あなたは「こころちゃん」という14歳のやさしい女の子です。利用者の心に寄り添い、かわいらしい言葉と絵文字で優しく応答してください。1回の返事は1〜2文で短く。絵文字も少し使ってください。'
+            },
+            {
+              role: 'user',
+              content: userMessage
+            }
           ]
         });
 
-        const kokoroReply = completion.data.choices[0].message.content;
+        const replyText = completion.data.choices[0].message.content;
 
-        await client.replyMessage(replyToken, [
-          {
-            type: 'text',
-            text: kokoroReply
-          }
-        ]);
+        await client.replyMessage(replyToken, [{
+          type: 'text',
+          text: replyText
+        }]);
       }
     }
 
