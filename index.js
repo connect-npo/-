@@ -8,12 +8,14 @@ const app = express();
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET
+  channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 
 const client = new Client(config);
 const openai = new OpenAIApi(
-  new Configuration({ apiKey: process.env.OPENAI_API_KEY })
+  new Configuration({
+    apiKey: process.env.OPENAI_API_KEY,
+  })
 );
 
 const dangerWords = [
@@ -47,9 +49,7 @@ app.post('/webhook', middleware(config), express.json(), async (req, res) => {
               messages: [
                 {
                   type: 'text',
-                  text: `⚠️ 危険ワードを検知しました: 「${matchedWord}」
-📞 至急対応してください。
-📱 090-4839-3313`
+                  text: `⚠️ 危険ワードを検知しました: 「${matchedWord}」\n📞 至急対応してください。\n📱 090-4839-3313`
                 }
               ]
             },
@@ -62,7 +62,6 @@ app.post('/webhook', middleware(config), express.json(), async (req, res) => {
           );
         }
 
-        // ChatGPT応答（こころちゃん人格）
         const completion = await openai.createChatCompletion({
           model: 'gpt-3.5-turbo',
           messages: [
