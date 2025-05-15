@@ -34,4 +34,5 @@
 
 以下は、LINEで友だち追加したときに表示される初回メッセージです🌸
 
-![こころちゃんのLINE画面](./images/kokoro-line.jpg)
+![こころちゃんのLINE画面](./kokoro-line.jpg)
+
