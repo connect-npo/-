@@ -1,4 +1,3 @@
-// 完全動作版 index.js
 const express = require('express');
 const axios = require('axios');
 const { Configuration, OpenAIApi } = require('openai');
