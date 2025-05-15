@@ -1,16 +1,11 @@
-{
-  "name": "kokoro-chat",
-  "version": "1.0.0",
-  "main": "index.js",
-  "type": "commonjs",
-  "scripts": {
-    "start": "node index.js"
-  },
-  "dependencies": {
-    "express": "^4.18.2",
-    "axios": "^1.6.8",
-    "@line/bot-sdk": "^7.5.1",
-    "openai": "^4.20.0",
-    "dotenv": "^16.4.5"
-  }
-}
+const express = require('express');
+const app = express();
+
+app.get('/', (req, res) => {
+  res.send('✅ Server is running!');
+});
+
+const port = process.env.PORT || 10000;
+app.listen(port, () => {
+  console.log(`✅ Listening on port ${port}`);
+});
