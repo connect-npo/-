@@ -1,4 +1,3 @@
-// 完全版 index.js（署名エラー対応 + userId ログ出力 + ChatGPT + 危険ワード + .envなし）
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
@@ -13,7 +12,6 @@ const client = new Client(config);
 const OPENAI_API_KEY = process.env.YOUR_OPENAI_API_KEY;
 const GROUP_ID = process.env.GROUP_ID;
 
-// 危険ワード一覧
 const dangerWords = [
   "しにたい", "死にたい", "自殺", "消えたい", "つらい", "助けて", "やめたい", "苦しい",
   "学校に行けない", "殴られる", "たたかれる", "いじめ", "リストカット", "オーバードーズ",
@@ -21,17 +19,18 @@ const dangerWords = [
   "殺される", "暴力", "虐待", "誰にも言えない", "死のうと思う", "消えてしまいたい"
 ];
 
-// LINE署名検証に必要な生リクエストを取得
+// LINE署名検証用（生データを保持）
 app.post('/webhook', express.raw({ type: 'application/json' }), middleware(config), async (req, res) => {
-  const events = JSON.parse(req.body.toString()).events;
+  const events = req.body.events;
   res.status(200).send('OK');
 
   for (const event of events) {
-    console.log(JSON.stringify(event, null, 2)); // ← LINE userIdを含む全ログ出力
+    console.log(JSON.stringify(event, null, 2)); // userIdなどログ出力
 
     if (event.type === 'message' && event.message.type === 'text') {
       const text = event.message.text;
 
+      // 危険ワード検知
       const found = dangerWords.find(word => text.includes(word));
       if (found) {
         await client.replyMessage(event.replyToken, {
@@ -40,13 +39,14 @@ app.post('/webhook', express.raw({ type: 'application/json' }), middleware(confi
         });
         await client.pushMessage(GROUP_ID, {
           type: 'text',
-          text: `[通報] 危険ワード「${found}」検出: ${text}`
+          text: `[通報] 危険ワード「${found}」を検出しました：\n${text}`
         });
         continue;
       }
 
+      // ChatGPT応答
       try {
-        const reply = await axios.post("https://api.openai.com/v1/chat/completions", {
+        const response = await axios.post("https://api.openai.com/v1/chat/completions", {
           model: "gpt-3.5-turbo",
           messages: [{ role: "user", content: text }]
         }, {
@@ -56,13 +56,13 @@ app.post('/webhook', express.raw({ type: 'application/json' }), middleware(confi
           }
         });
 
-        const aiText = reply.data.choices[0].message.content;
+        const aiText = response.data.choices[0].message.content;
         await client.replyMessage(event.replyToken, {
           type: 'text',
           text: aiText
         });
-      } catch (err) {
-        console.error("ChatGPTエラー:", err.message);
+      } catch (error) {
+        console.error("OpenAIエラー:", error.message);
         await client.replyMessage(event.replyToken, {
           type: 'text',
           text: 'ちょっと混み合ってるみたい…また後で話そうね。'
