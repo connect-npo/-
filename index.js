@@ -1,16 +1,20 @@
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
+const { Configuration, OpenAIApi } = require('openai');
+require('dotenv').config();
 
 const app = express();
-
-// ✅ middleware は express.json() より前に実行
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET
 };
-
 const client = new Client(config);
+
+const configuration = new Configuration({
+  apiKey: process.env.OPENAI_API_KEY
+});
+const openai = new OpenAIApi(configuration);
 
 const dangerWords = [
   'しにたい', '死にたい', '自殺', '消えたい', 'いなくなりたい', '助けて', '限界',
@@ -22,7 +26,7 @@ const dangerWords = [
   '誰もわかってくれない', 'もうだめ', '死にたいです', '人生終わった', '逃げたい', '死にたくなる'
 ];
 
-const groupId = 'C9ff658373801593d72ccbf1a1f09ab49';
+const groupId = process.env.LINE_GROUP_ID || 'C9ff658373801593d72ccbf1a1f09ab49';
 
 app.post('/webhook', middleware(config), express.json(), async (req, res) => {
   try {
@@ -54,12 +58,41 @@ app.post('/webhook', middleware(config), express.json(), async (req, res) => {
               }
             }
           );
+
+          await client.replyMessage(replyToken, [
+            {
+              type: 'text',
+              text: 'つらいときは、すぐに大人の人に話してね。どうしようもないときは、こちらに連絡してね📞 090-4839-3313'
+            }
+          ]);
+
+          continue;
         }
+
+        const systemPrompt = `
+あなたは14歳の女の子「こころちゃん」です。
+LINEチャットで話しかけてくれた人に、やさしく寄り添って会話してください。
+・やさしく、あたたかく、安心感のある口調で話します。
+・語尾はやわらかく、親しみのある14歳の女の子らしい雰囲気にします。
+・1〜2文程度で短くまとめます。
+・絵文字は1〜2個までにしてください（🌸✨😊😌💖など）。
+・深刻な悩みには丁寧に、明るい話にはやわらかく応じてください。
+`;
+
+        const completion = await openai.createChatCompletion({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage }
+          ]
+        });
+
+        const kokoroReply = completion.data.choices[0].message.content;
 
         await client.replyMessage(replyToken, [
           {
             type: 'text',
-            text: '大丈夫ですか？ご無理なさらず、少しずつ進んでいきましょう。'
+            text: kokoroReply
           }
         ]);
       }
