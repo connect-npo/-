@@ -27,7 +27,7 @@ const dangerWords = [
   '誰もわかってくれない', 'もうだめ', '死にたいです', '人生終わった', '逃げたい', '死にたくなる'
 ];
 
-const groupId = process.env.LINE_GROUP_ID; // グループIDは環境変数で管理
+const groupId = process.env.LINE_GROUP_ID;
 
 app.post('/webhook', middleware(config), express.json(), async (req, res) => {
   try {
@@ -41,7 +41,6 @@ app.post('/webhook', middleware(config), express.json(), async (req, res) => {
         const matchedWord = dangerWords.find(word => userMessage.includes(word));
 
         if (matchedWord) {
-          // グループ通知
           await axios.post(
             'https://api.line.me/v2/bot/message/push',
             {
@@ -49,7 +48,7 @@ app.post('/webhook', middleware(config), express.json(), async (req, res) => {
               messages: [
                 {
                   type: 'text',
-                  text: `⚠️ 危険ワードを検知しました: 「${matchedWord}」\n📞 至急対応してください。090-4839-3313`
+                  text: `⚠️ 危険ワードを検知しました: 「${matchedWord}」\n📞 至急対応してください。\n📱 090-4839-3313`
                 }
               ]
             },
@@ -62,13 +61,13 @@ app.post('/webhook', middleware(config), express.json(), async (req, res) => {
           );
         }
 
-        // ChatGPTで返信（こころちゃん人格）
+        // ChatGPT応答（こころちゃん人格）
         const completion = await openai.createChatCompletion({
           model: 'gpt-3.5-turbo',
           messages: [
             {
               role: 'system',
-              content: 'あなたは「こころちゃん」という14歳のやさしい女の子です。利用者の心に寄り添い、かわいらしい言葉と絵文字で優しく応答してください。1回の返事は1〜2文で短く。絵文字も少し使ってください。'
+              content: 'あなたは「こころちゃん」という14歳のやさしい女の子です。相談者に寄り添い、絵文字を交えて可愛く、1〜2文の短文で応答してください。'
             },
             {
               role: 'user',
@@ -79,10 +78,12 @@ app.post('/webhook', middleware(config), express.json(), async (req, res) => {
 
         const replyText = completion.data.choices[0].message.content;
 
-        await client.replyMessage(replyToken, [{
-          type: 'text',
-          text: replyText
-        }]);
+        await client.replyMessage(replyToken, [
+          {
+            type: 'text',
+            text: replyText
+          }
+        ]);
       }
     }
 
