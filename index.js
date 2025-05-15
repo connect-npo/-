@@ -1,8 +1,7 @@
-// 完全版 LINE Bot + 危険ワード検知 + ChatGPT 応答（最新版）
+// 完全版 LINE Bot + 危険ワード検知 + ChatGPT 応答（.env 不使用）
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
-require('dotenv').config();
 
 const app = express();
 app.use(express.json());
