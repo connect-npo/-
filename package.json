@@ -1,12 +1,13 @@
 {
-  "name": "test-server",
+  "name": "kokoro-bot",
   "version": "1.0.0",
   "main": "index.js",
-  "type": "commonjs",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.18.2"
+    "axios": "^1.5.1",
+    "express": "^4.18.2",
+    "@line/bot-sdk": "^7.5.1"
   }
 }
