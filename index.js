@@ -21,6 +21,7 @@ const dangerWords = [
 
 const GROUP_ID = process.env.GROUP_ID;
 
+// Webhookエンドポイント（POST）
 app.post('/webhook', middleware(config), async (req, res) => {
   try {
     const events = req.body.events;
@@ -32,6 +33,12 @@ app.post('/webhook', middleware(config), async (req, res) => {
   }
 });
 
+// Webhook検証用（GET）
+app.get('/webhook', (req, res) => {
+  res.status(200).send('LINE webhook is active');
+});
+
+// イベント処理
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
@@ -39,29 +46,28 @@ async function handleEvent(event) {
 
   const messageText = event.message.text;
 
-  // 危険ワードチェック
+  // 危険ワード検出
   const foundWord = dangerWords.find(word => messageText.includes(word));
   if (foundWord) {
-    // グループに通知
     await client.pushMessage(GROUP_ID, {
       type: 'text',
       text: `⚠️ 危険ワード「${foundWord}」を含むメッセージを検出しました：\n${messageText}`
     });
 
-    // 利用者へ返信
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: 'つらいときは、ひとりで抱え込まないでください。\n\nどうしようもないときは、こちらへお電話ください 📞\n090-4839-3313'
     });
   }
 
-  // 通常の応答（こころちゃん）
+  // 通常応答
   return client.replyMessage(event.replyToken, {
     type: 'text',
     text: `こころちゃんです🌸\n「${messageText}」って送ってくれてありがとう！\n何かあれば、いつでもお話ししてね☺️`
   });
 }
 
+// サーバー起動
 app.listen(port, () => {
   console.log(`🚀 Server is running on port ${port}`);
 });
