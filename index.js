@@ -84,6 +84,8 @@ const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`🚀 Server is running on port ${port}`);
 });
+
+// テスト用GETエンドポイント
 app.get('/', (req, res) => {
   res.send('こころちゃんは元気です🌸');
 });
