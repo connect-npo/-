@@ -1,4 +1,3 @@
-// index.js
 const express = require('express');
 const axios = require('axios');
 const { Configuration, OpenAIApi } = require('openai');
@@ -76,7 +75,7 @@ app.post('/webhook', middleware(config), express.json(), async (req, res) => {
           ]
         });
 
-        const replyText = completion.data.choices[0].message.content;
+        const replyText = completion.data.choices[0].message.content.trim();
 
         await client.replyMessage(replyToken, [
           {
