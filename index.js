@@ -1,4 +1,4 @@
-// 完全版 index.js（グループでは危険通知のみ応答）
+// 完全版 index.js（安定運用・グループ制御対応）
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
@@ -29,10 +29,11 @@ app.post('/webhook', middleware(config), async (req, res) => {
   for (const event of events) {
     if (event.type === 'message' && event.message.type === 'text') {
       const userMessage = event.message.text;
-      const userId = event.source.userId;
-      const isGroup = event.source.type === 'group';
+      const source = event.source;
+      const userId = source.userId;
+      const isGroup = source.type === 'group';
 
-      // 危険ワードの検出
+      // 危険ワード対応
       const detected = dangerWords.find(word => userMessage.includes(word));
       if (detected) {
         let displayName = "（名前取得失敗）";
@@ -44,13 +45,15 @@ app.post('/webhook', middleware(config), async (req, res) => {
           console.error("⚠️ getProfile失敗:", e.message);
         }
 
-        if (!isGroup) {
+        // 危険ワード返信（個人チャットのみ）
+        if (source.type === 'user') {
           await client.replyMessage(event.replyToken, {
             type: 'text',
-            text: `🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313`
+            text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313"
           });
         }
 
+        // 通報通知
         const notifyFlex = {
           type: "flex",
           altText: "⚠ 通報通知",
@@ -103,12 +106,27 @@ app.post('/webhook', middleware(config), async (req, res) => {
             console.error("保護者グループ通知失敗:", err.response?.data || err.message);
           }
         }
-
         continue;
       }
 
-      if (isGroup) continue; // グループでは危険通知以外は無視
+      // グループでは通常返信しない
+      if (isGroup) continue;
 
+      // 返信ボタン処理（全体対応）
+      if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
+        const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
+        const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
+        if (matchedEntry) {
+          const targetUserId = matchedEntry[0];
+          await client.pushMessage(targetUserId, {
+            type: "text",
+            text: `🌸 ${name}さん、大丈夫？気にかけているよ🍀いつでも話してね。`
+          });
+        }
+        continue;
+      }
+
+      // 通常メッセージ返信（個別チャット）
       try {
         const openaiRes = await axios.post(
           'https://api.openai.com/v1/chat/completions',
@@ -118,7 +136,6 @@ app.post('/webhook', middleware(config), async (req, res) => {
               {
                 role: 'system',
                 content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
-
 【基本姿勢】
 - 返答は2〜3文で簡潔に。
 - 呼びかけや挨拶（「こんにちは」など）は不要。
