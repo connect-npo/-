@@ -1,4 +1,5 @@
-// 完全版 index.js（安定運用・グループ制御対応）
+
+// 完全最終版 index.js（有料プラン対応・安定・多重処理対応）
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
@@ -33,7 +34,6 @@ app.post('/webhook', middleware(config), async (req, res) => {
       const userId = source.userId;
       const isGroup = source.type === 'group';
 
-      // 危険ワード対応
       const detected = dangerWords.find(word => userMessage.includes(word));
       if (detected) {
         let displayName = "（名前取得失敗）";
@@ -45,15 +45,24 @@ app.post('/webhook', middleware(config), async (req, res) => {
           console.error("⚠️ getProfile失敗:", e.message);
         }
 
-        // 危険ワード返信（個人チャットのみ）
         if (source.type === 'user') {
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313"
-          });
+          try {
+            await client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。
+
+📞どうしようもないときは電話してね：090-4839-3313"
+            });
+          } catch (err) {
+            await client.pushMessage(userId, {
+              type: 'text',
+              text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。
+
+📞どうしようもないときは電話してね：090-4839-3313"
+            });
+          }
         }
 
-        // 通報通知
         const notifyFlex = {
           type: "flex",
           altText: "⚠ 通報通知",
@@ -106,13 +115,10 @@ app.post('/webhook', middleware(config), async (req, res) => {
             console.error("保護者グループ通知失敗:", err.response?.data || err.message);
           }
         }
+
         continue;
       }
 
-      // グループでは通常返信しない
-      if (isGroup) continue;
-
-      // 返信ボタン処理（全体対応）
       if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
         const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
         const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
@@ -126,7 +132,8 @@ app.post('/webhook', middleware(config), async (req, res) => {
         continue;
       }
 
-      // 通常メッセージ返信（個別チャット）
+      if (isGroup) continue;
+
       try {
         const openaiRes = await axios.post(
           'https://api.openai.com/v1/chat/completions',
@@ -169,10 +176,14 @@ app.post('/webhook', middleware(config), async (req, res) => {
         });
       } catch (error) {
         console.error("OpenAIエラー:", error.response?.data || error.message);
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: 'ごめんね💦 今ちょっと混みあってるみたい。もう一度お話ししてくれるとうれしいな🍀'
-        });
+        try {
+          await client.pushMessage(userId, {
+            type: 'text',
+            text: 'ごめんね💦 ちょっと混みあってたみたい。もう一度お話ししてくれるとうれしいな🍀'
+          });
+        } catch (e) {
+          console.error("バックアップpushMessageも失敗:", e.message);
+        }
       }
     }
   }
