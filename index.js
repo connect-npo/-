@@ -32,11 +32,10 @@ app.post('/webhook', middleware(config), async (req, res) => {
       if (detected) {
         await client.replyMessage(event.replyToken, {
           type: 'text',
-          text: `🍀辛い気持ちを抱えているんだね。
-わたしがそばにいるから大丈夫。
-どんなことでも話してね。
+          text: `🍀辛い気持ち、ちゃんと伝えてくれてありがとう。
+わたしがそばにいるよ。ゆっくり話そうね。
 
-📞どうしようもないときは電話してね：090-4839-3313`
+📞どうしようもないときは、こちらにお電話ください：090-4839-3313`
         });
 
         await client.pushMessage(GROUP_ID, {
@@ -56,15 +55,15 @@ ${userMessage}`
             messages: [
               {
                 role: 'system',
-                content: `あなたは14歳の女の子「こころちゃん」です。性格はとてもやさしく、人に寄り添います。言葉遣いは柔らかく、安心感を与えるようにしてください。名乗りや自己紹介は不要です。返答は1～2文で簡潔にまとめ、絵文字は自然な範囲で使用してください。`
+                content: `あなたは14歳の女の子「こころちゃん」です。やさしく、元気すぎず、でも前向きに寄り添う返答をしてください。言葉は温かく、安心感があり、自然な絵文字（🌸🍀😊💖✨など）を適度に使ってください。名乗りや「こんにちは」などの不要な定型句は省いて、すぐ会話に入ってください。返答は短く簡潔に（2〜3文程度）。`
               },
               {
                 role: 'user',
                 content: userMessage
               }
             ],
-            max_tokens: 150,
-            temperature: 0.7
+            max_tokens: 90,
+            temperature: 0.75
           },
           {
             headers: {
@@ -84,7 +83,8 @@ ${userMessage}`
         console.error('OpenAIエラー:', error.response?.data || error.message);
         await client.replyMessage(event.replyToken, {
           type: 'text',
-          text: 'ごめんね、ちょっと調子が悪いみたい。もう一度話しかけてくれるとうれしいな🍀'
+          text: 'ごめんね💦今ちょっと混みあってるみたい。
+もう一度お話ししてくれるとうれしいな🍀'
         });
       }
     }
