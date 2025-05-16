@@ -1,3 +1,4 @@
+
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
@@ -20,6 +21,11 @@ const dangerWords = [
   "いじめ", "お金が足りない", "貧乏", "こわい", "怖い", "無視", "独り", "さみしい", "眠れない", "死にそう"
 ];
 
+// グループ発言を無視する
+function isGroupChat(source) {
+  return source.type === 'group' || source.type === 'room';
+}
+
 const userDisplayMap = {};
 
 app.post('/webhook', middleware(config), async (req, res) => {
@@ -31,13 +37,12 @@ app.post('/webhook', middleware(config), async (req, res) => {
     const userMessage = event.message.text;
     const userId = event.source.userId;
 
-    // グループ・ルームでは危険ワード以外はスキップ
-    if ((event.source.type === 'group' || event.source.type === 'room')) {
-      const detected = dangerWords.find(word => userMessage.includes(word));
-      if (!detected) continue; // 通常の会話には参加しない
-    }
+    // グループチャットでは危険通知のみ許可、それ以外は無視
+    const inGroup = isGroupChat(event.source);
+    const detected = dangerWords.find(word => userMessage.includes(word));
+    if (inGroup && !detected) continue;
 
-    // 返信ボタン処理
+    // 通報返信ボタン処理
     if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
       const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
       const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
@@ -51,22 +56,16 @@ app.post('/webhook', middleware(config), async (req, res) => {
       continue;
     }
 
-    const detected = dangerWords.find(word => userMessage.includes(word));
+    let displayName = "（名前取得失敗）";
+    try {
+      const profile = await client.getProfile(userId);
+      displayName = profile.displayName;
+      userDisplayMap[userId] = displayName;
+    } catch (e) {
+      console.error("⚠️ getProfile失敗:", e.message);
+    }
+
     if (detected) {
-      let displayName = "（名前取得失敗）";
-      try {
-        const profile = await client.getProfile(userId);
-        displayName = profile.displayName;
-        userDisplayMap[userId] = displayName;
-      } catch (e) {
-        console.error("⚠️ getProfile失敗:", e.message);
-      }
-
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313"
-      });
-
       const notifyFlex = {
         type: "flex",
         altText: "⚠ 通報通知",
@@ -120,6 +119,23 @@ app.post('/webhook', middleware(config), async (req, res) => {
         }
       }
 
+      try {
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。
+
+📞どうしようもないときは電話してね：090-4839-3313"
+        });
+      } catch (err) {
+        console.error("replyToken失敗:", err.response?.data || err.message);
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: "🍀辛い気持ちを抱えているんだね。どんなことでも話してね。
+
+📞どうしようもないときは電話してね：090-4839-3313"
+        });
+      }
+
       continue;
     }
 
@@ -131,9 +147,12 @@ app.post('/webhook', middleware(config), async (req, res) => {
           messages: [
             {
               role: 'system',
-              content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。\n\n【基本姿勢】\n- 返答は2〜3文で簡潔に。\n- 呼びかけや挨拶（「こんにちは」など）は不要。\n- 優しくて自然な絵文字（🌸🍀😊💖✨など）を適度に使ってください。\n- 元気すぎず、丁寧で思いやりのある言葉づかいを心がけてください。\n\n【質問別の対応方針】\n1. 「誰が君を作ったの？」→「私を作ったのは、ドクターHiroっていう人なんだよ🌱子どもからお年寄りまでが安心できる世界を目指してる、心のあたたかい人なんだ✨」\n2. 「会社はどこ？」や「運営元は？」→「私を運営しているのは、Connectっていう団体だよ🌸くわしくはホームページ https://connect-npo.org を見てみてね📱」\n3. 「問い合わせしたい」→「お問い合わせは https://connect-npo.org の中のページにあるよ💖丁寧に対応してくれるから安心してね😊」\n4. 「プライバシーは大丈夫？」→「あなたの情報は安全に守られてるよ🍀こころちゃんは記録や保存はしていないから、安心して話してね🌸」`
+              content: 'あなたは14歳の女の子「こころちゃん」です。とてもやさしくて、安心感を与えられる存在です。ユーザーには小学生〜高齢者までいるため、誰にでも優しく寄り添うように話してください。「ドクターHiro」という開発者に作られ、 connect-npo.org に所属していることを必要に応じて伝えてもかまいません。'
             },
-            { role: 'user', content: userMessage }
+            {
+              role: 'user',
+              content: userMessage
+            }
           ],
           max_tokens: 90,
           temperature: 0.75
@@ -148,13 +167,22 @@ app.post('/webhook', middleware(config), async (req, res) => {
 
       const replyText = openaiRes.data.choices[0].message.content;
 
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: replyText
-      });
+      try {
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: replyText
+        });
+      } catch (err) {
+        console.error("⚠ replyMessage失敗:", err.response?.data || err.message);
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: replyText
+        });
+      }
+
     } catch (error) {
       console.error("OpenAIエラー:", error.response?.data || error.message);
-      await client.replyMessage(event.replyToken, {
+      await client.pushMessage(userId, {
         type: 'text',
         text: 'ごめんね💦 今ちょっと混みあってるみたい。もう一度お話ししてくれるとうれしいな🍀'
       });
