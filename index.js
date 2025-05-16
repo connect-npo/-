@@ -21,7 +21,7 @@ const dangerWords = [
   "いじめ", "お金が足りない", "貧乏", "こわい", "怖い", "無視", "独り", "さみしい", "眠れない"
 ];
 
-// 保存用（簡易メモリ）： userId -> displayName
+// ユーザー名を保存する簡易マップ
 const userDisplayMap = {};
 
 app.post('/webhook', middleware(config), async (req, res) => {
@@ -31,9 +31,8 @@ app.post('/webhook', middleware(config), async (req, res) => {
     if (event.type === 'message' && event.message.type === 'text') {
       const userMessage = event.message.text;
       const userId = event.source.userId;
-      const groupId = event.source.groupId || null;
 
-      // 特殊処理：「@〇〇 さんに声かけします」に反応する返信機能
+      // 返信ボタン処理
       if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
         const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
         const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
@@ -41,7 +40,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
           const targetUserId = matchedEntry[0];
           await client.pushMessage(targetUserId, {
             type: "text",
-            text: `🌸「${name}さん、大丈夫？気にかけているよ🍀必要ならまた話してね」`
+            text: `🌸 ${name}さん、大丈夫？気にかけているよ🍀いつでも話してね。`
           });
         }
         continue;
@@ -53,14 +52,16 @@ app.post('/webhook', middleware(config), async (req, res) => {
         try {
           const profile = await client.getProfile(userId);
           displayName = profile.displayName;
-          userDisplayMap[userId] = displayName; // マップに保存
+          userDisplayMap[userId] = displayName;
         } catch (e) {
           console.error("⚠️ getProfile失敗:", e.message);
         }
 
         await client.replyMessage(event.replyToken, {
           type: 'text',
-          text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313"
+          text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。
+
+📞どうしようもないときは電話してね：090-4839-3313"
         });
 
         const notifyFlex = {
@@ -100,10 +101,12 @@ app.post('/webhook', middleware(config), async (req, res) => {
           }
         };
 
-        try {
-          await client.pushMessage(OFFICER_GROUP_ID, notifyFlex);
-        } catch (err) {
-          console.error("役員グループ通知失敗:", err.response?.data || err.message);
+        if (OFFICER_GROUP_ID) {
+          try {
+            await client.pushMessage(OFFICER_GROUP_ID, notifyFlex);
+          } catch (err) {
+            console.error("役員グループ通知失敗:", err.response?.data || err.message);
+          }
         }
 
         if (PARENT_GROUP_ID) {
