@@ -14,7 +14,7 @@ const client = new Client(config);
 const OPENAI_API_KEY = process.env.YOUR_OPENAI_API_KEY;
 const GROUP_ID = process.env.GROUP_ID;
 
-// 危険ワード（拡充版）
+// 危険ワード（拡張済み）
 const dangerWords = [
   "しにたい", "死にたい", "自殺", "消えたい", "つらい", "助けて", "やめたい", "苦しい",
   "学校に行けない", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
@@ -31,18 +31,22 @@ app.post('/webhook', middleware(config), async (req, res) => {
       // 危険ワード検出
       const detected = dangerWords.find(word => userMessage.includes(word));
       if (detected) {
+        // ユーザーへの優しい返信
         await client.replyMessage(event.replyToken, {
           type: 'text',
-          text: '🍀辛い気持ちを伝えてくれてありがとう。
-ひとりじゃないよ。わたしがそばにいるからね。
+          text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。
 
-📞どうしようもないときは、お電話ください：090-4839-3313'
+📞どうしようもないときは電話してね：090-4839-3313"
         });
 
+        // 管理グループへの通報とアクション提案
         await client.pushMessage(GROUP_ID, {
           type: 'text',
-          text: `[通報] 危険ワード「${detected}」検出：
-${userMessage}`
+          text: `[通報] 危険ワード「${detected}」が検出されました。
+ユーザー発言: 「${userMessage}」
+
+📣サポートが必要な方がいます。対応できる方は、個別に連絡またはサポート窓口にご相談ください。
+🌐 https://connect-npo.org/support`
         });
 
         return;
@@ -84,7 +88,7 @@ ${userMessage}`
         console.error('OpenAIエラー:', error.response?.data || error.message);
         await client.replyMessage(event.replyToken, {
           type: 'text',
-          text: 'ごめんね💦今ちょっと混みあってるみたい。もう一度お話ししてくれるとうれしいな🍀'
+          text: 'ごめんね💦 今ちょっと混みあってるみたい。もう一度お話ししてくれるとうれしいな🍀'
         });
       }
     }
