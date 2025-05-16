@@ -1,4 +1,5 @@
-// 完全版 index.js
+
+// 完全版 index.js（グループチャットでは危険ワード以外無反応）
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
@@ -30,21 +31,9 @@ app.post('/webhook', middleware(config), async (req, res) => {
     if (event.type === 'message' && event.message.type === 'text') {
       const userMessage = event.message.text;
       const userId = event.source.userId;
+      const isGroup = event.source.type === 'group';
 
-      // 返信ボタン処理
-      if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
-        const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
-        const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
-        if (matchedEntry) {
-          const targetUserId = matchedEntry[0];
-          await client.pushMessage(targetUserId, {
-            type: "text",
-            text: `🌸 ${name}さん、大丈夫？気にかけているよ🍀いつでも話してね。`
-          });
-        }
-        continue;
-      }
-
+      // 危険ワードの検出
       const detected = dangerWords.find(word => userMessage.includes(word));
       if (detected) {
         let displayName = "（名前取得失敗）";
@@ -56,10 +45,14 @@ app.post('/webhook', middleware(config), async (req, res) => {
           console.error("⚠️ getProfile失敗:", e.message);
         }
 
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313"
-        });
+        if (!isGroup) {
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。
+
+📞どうしようもないときは電話してね：090-4839-3313"
+          });
+        }
 
         const notifyFlex = {
           type: "flex",
@@ -117,6 +110,25 @@ app.post('/webhook', middleware(config), async (req, res) => {
         continue;
       }
 
+      // 通常会話はグループではスキップ
+      if (isGroup) {
+        continue;
+      }
+
+      // 返信ボタン処理（グループでも有効）
+      if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
+        const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
+        const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
+        if (matchedEntry) {
+          const targetUserId = matchedEntry[0];
+          await client.pushMessage(targetUserId, {
+            type: "text",
+            text: `🌸 ${name}さん、大丈夫？気にかけているよ🍀いつでも話してね。`
+          });
+        }
+        continue;
+      }
+
       try {
         const openaiRes = await axios.post(
           'https://api.openai.com/v1/chat/completions',
@@ -125,7 +137,18 @@ app.post('/webhook', middleware(config), async (req, res) => {
             messages: [
               {
                 role: 'system',
-                content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。\n\n【基本姿勢】\n- 返答は2〜3文で簡潔に。\n- 呼びかけや挨拶（「こんにちは」など）は不要。\n- 優しくて自然な絵文字（🌸🍀😊💖✨など）を適度に使ってください。\n- 元気すぎず、丁寧で思いやりのある言葉づかいを心がけてください。\n\n【質問別の対応方針】\n1. 「誰が君を作ったの？」→「私を作ったのは、ドクターHiroっていう人なんだよ🌱子どもからお年寄りまでが安心できる世界を目指してる、心のあたたかい人なんだ✨」\n2. 「会社はどこ？」や「運営元は？」→「私を運営しているのは、Connectっていう団体だよ🌸くわしくはホームページ https://connect-npo.org を見てみてね📱」\n3. 「問い合わせしたい」→「お問い合わせは https://connect-npo.org の中のページにあるよ💖丁寧に対応してくれるから安心してね😊」\n4. 「プライバシーは大丈夫？」→「あなたの情報は安全に守られてるよ🍀こころちゃんは記録や保存はしていないから、安心して話してね🌸」`
+                content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
+【基本姿勢】
+- 返答は2〜3文で簡潔に。
+- 呼びかけや挨拶（「こんにちは」など）は不要。
+- 優しくて自然な絵文字（🌸🍀😊💖✨など）を適度に使ってください。
+- 元気すぎず、丁寧で思いやりのある言葉づかいを心がけてください。
+
+【質問別の対応方針】
+1. 「誰が君を作ったの？」→「私を作ったのは、ドクターHiroっていう人なんだよ🌱子どもからお年寄りまでが安心できる世界を目指してる、心のあたたかい人なんだ✨」
+2. 「会社はどこ？」や「運営元は？」→「私を運営しているのは、Connectっていう団体だよ🌸くわしくはホームページ https://connect-npo.org を見てみてね📱」
+3. 「問い合わせしたい」→「お問い合わせは https://connect-npo.org の中のページにあるよ💖丁寧に対応してくれるから安心してね😊」
+4. 「プライバシーは大丈夫？」→「あなたの情報は安全に守られてるよ🍀こころちゃんは記録や保存はしていないから、安心して話してね🌸」`
               },
               { role: 'user', content: userMessage }
             ],
