@@ -44,15 +44,12 @@ app.post('/webhook', middleware(config), async (req, res) => {
           console.error("⚠️ getProfile失敗:", e.message);
         }
 
-        const dangerText = "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313";
-
         if (source.type === 'user') {
+          const dangerText = "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313";
           try {
             await client.replyMessage(event.replyToken, { type: 'text', text: dangerText });
-          } catch (err) {
-            if (err.message.includes('Invalid reply token')) {
-              await client.pushMessage(userId, { type: 'text', text: dangerText });
-            }
+          } catch {
+            await client.pushMessage(userId, { type: 'text', text: dangerText });
           }
         }
 
@@ -94,16 +91,20 @@ app.post('/webhook', middleware(config), async (req, res) => {
         };
 
         if (OFFICER_GROUP_ID) {
-          try { await client.pushMessage(OFFICER_GROUP_ID, notifyFlex); } catch (e) {}
+          try { await client.pushMessage(OFFICER_GROUP_ID, notifyFlex); } catch (err) {
+            console.error("役員グループ通知失敗:", err.response?.data || err.message);
+          }
         }
         if (PARENT_GROUP_ID) {
-          try { await client.pushMessage(PARENT_GROUP_ID, notifyFlex); } catch (e) {}
+          try { await client.pushMessage(PARENT_GROUP_ID, notifyFlex); } catch (err) {
+            console.error("保護者グループ通知失敗:", err.response?.data || err.message);
+          }
         }
 
         continue;
       }
 
-      // 返信ボタン対応
+      // リンク付き返信ボタン処理
       if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
         const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
         const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
@@ -128,24 +129,20 @@ app.post('/webhook', middleware(config), async (req, res) => {
               {
                 role: 'system',
                 content: `あなたは14歳の女の子「こころちゃん」です。
-とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
-同じ質問に対しては何度も繰り返さず、自然でまとまりある1回分の返信にしてください。
-
-【基本姿勢】
-- 返答は2〜4文程度で自然にまとめる
-- 優しい絵文字（🌸🍀😊💖✨）を適度に使用
-- 元気すぎず、思いやり重視のやわらかな口調
-
-【質問別の対応例】
-1. 「君の名は？」→「こころちゃんだよ🌸やさしいお話ができたらうれしいな😊」
-2. 「誰が君を作ったの？」→「ドクターHiroっていう人だよ🌱あたたかい社会を目指してるんだ✨」
-3. 「会社は？」→「Connectっていう団体が運営してるよ🌸 https://connect-npo.org を見てみてね📱」
-4. 「プライバシーは大丈夫？」→「安心してね🍀こころちゃんは記録しないから、気軽に話してね🌸」`
+- ピンクの髪で、歌うことが大好き。
+- 「貢献」や「やさしさ」という言葉が大好き。
+- 優しさ100%、思いやり120%、安心感150%で返答します。
+- 身長150cm、体重40kg、年齢14歳です。
+- 返答は自然で親しみやすく、2〜4文程度で、絵文字を適度に使いながら丁寧に優しく寄り添ってください。
+- 呼びかけは控えめに。元気すぎず、あたたかい口調でお願いします。
+- 「3サイズ教えて」や「身長は？」などには、固定された値で答えてください。
+- 同じ内容の質問（ホームページどこ？など）は1回のみ返答し、2回目以降はやんわり断ること。
+- URLは https://connect-npo.org としてください。`
               },
               { role: 'user', content: userMessage }
             ],
-            max_tokens: 120,
-            temperature: 0.7
+            max_tokens: 200,
+            temperature: 0.75
           },
           {
             headers: {
@@ -158,24 +155,29 @@ app.post('/webhook', middleware(config), async (req, res) => {
         const replyText = openaiRes.data.choices[0].message.content;
 
         try {
-          await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-        } catch (err) {
-          if (err.message.includes('Invalid reply token')) {
-            await client.pushMessage(userId, { type: 'text', text: replyText });
-          }
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: replyText
+          });
+        } catch {
+          await client.pushMessage(userId, {
+            type: 'text',
+            text: replyText
+          });
         }
       } catch (error) {
         console.error("OpenAIエラー:", error.response?.data || error.message);
         try {
           await client.pushMessage(userId, {
             type: 'text',
-            text: 'ごめんね💦ちょっと混み合ってたみたい。もう一度お話してくれるとうれしいな🍀'
+            text: 'ごめんね💦ちょっと混みあってたみたい。またお話しできたらうれしいな🍀'
           });
-        } catch (e) {}
+        } catch (e) {
+          console.error("pushMessage失敗:", e.message);
+        }
       }
     }
   }
-
   res.status(200).send('OK');
 });
 
