@@ -1,4 +1,3 @@
-
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
@@ -18,10 +17,9 @@ const PARENT_GROUP_ID = process.env.PARENT_GROUP_ID;
 const dangerWords = [
   "しにたい", "死にたい", "自殺", "消えたい", "つらい", "助けて", "やめたい", "苦しい",
   "学校に行けない", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
-  "いじめ", "お金が足りない", "貧乏", "こわい", "怖い", "無視", "独り", "さみしい", "眠れない"
+  "いじめ", "お金が足りない", "貧乏", "こわい", "怖い", "無視", "独り", "さみしい", "眠れない", "死にそう"
 ];
 
-// ユーザー名を保存する簡易マップ
 const userDisplayMap = {};
 
 app.post('/webhook', middleware(config), async (req, res) => {
@@ -58,10 +56,9 @@ app.post('/webhook', middleware(config), async (req, res) => {
         }
 
         await client.replyMessage(event.replyToken, {
-  type: 'text',
-  text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313"
-});
-
+          type: 'text',
+          text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313"
+        });
 
         const notifyFlex = {
           type: "flex",
