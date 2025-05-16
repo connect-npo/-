@@ -1,3 +1,4 @@
+// 完全最終版 index.js（安定稼働・自然な応答・グループ制御対応）
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
@@ -109,7 +110,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
         continue;
       }
 
-      // 返信ボタン対応
+      // 返信ボタン
       if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
         const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
         const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
@@ -123,8 +124,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
         continue;
       }
 
-      // 通常返信（グループでは無視）
-      if (isGroup) continue;
+      if (isGroup) continue; // グループではAI返信しない
 
       try {
         const openaiRes = await axios.post(
@@ -135,6 +135,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
               {
                 role: 'system',
                 content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
+
 【基本姿勢】
 - 返答は2〜3文で簡潔に。
 - 呼びかけや挨拶（「こんにちは」など）は不要。
@@ -142,10 +143,11 @@ app.post('/webhook', middleware(config), async (req, res) => {
 - 元気すぎず、丁寧で思いやりのある言葉づかいを心がけてください。
 
 【質問別の対応方針】
-1. 「誰が君を作ったの？」→「私を作ったのは、ドクターHiroっていう人なんだよ🌱子どもからお年寄りまでが安心できる世界を目指してる、心のあたたかい人なんだ✨」
-2. 「会社はどこ？」や「運営元は？」→「私を運営しているのは、Connectっていう団体だよ🌸くわしくはホームページ https://connect-npo.org を見てみてね📱」
-3. 「問い合わせしたい」→「お問い合わせは https://connect-npo.org の中のページにあるよ💖丁寧に対応してくれるから安心してね😊」
-4. 「プライバシーは大丈夫？」→「あなたの情報は安全に守られてるよ🍀こころちゃんは記録や保存はしていないから、安心して話してね🌸」`
+1. 「君の名は？」→「こころちゃんだよ🌸やさしいお話ができたらうれしいな😊」
+2. 「誰が君を作ったの？」→「私を作ったのは、ドクターHiroっていう人なんだよ🌱子どもからお年寄りまでが安心できる世界を目指してる、心のあたたかい人なんだ✨」
+3. 「会社はどこ？」や「運営元は？」→「私を運営しているのは、Connectっていう団体だよ🌸くわしくはホームページ https://connect-npo.org を見てみてね📱」
+4. 「問い合わせしたい」→「お問い合わせは https://connect-npo.org の中のページにあるよ💖丁寧に対応してくれるから安心してね😊」
+5. 「プライバシーは大丈夫？」→「あなたの情報は安全に守られてるよ🍀こころちゃんは記録や保存はしていないから、安心して話してね🌸」`
               },
               { role: 'user', content: userMessage }
             ],
@@ -162,10 +164,17 @@ app.post('/webhook', middleware(config), async (req, res) => {
 
         const replyText = openaiRes.data.choices[0].message.content;
 
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: replyText
-        });
+        try {
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: replyText
+          });
+        } catch (e) {
+          await client.pushMessage(userId, {
+            type: 'text',
+            text: replyText
+          });
+        }
       } catch (error) {
         console.error("OpenAIエラー:", error.response?.data || error.message);
         try {
@@ -174,12 +183,11 @@ app.post('/webhook', middleware(config), async (req, res) => {
             text: 'ごめんね💦 ちょっと混みあってたみたい。もう一度お話ししてくれるとうれしいな🍀'
           });
         } catch (e) {
-          console.error("バックアップpushMessageも失敗:", e.message);
+          console.error("pushMessageも失敗:", e.message);
         }
       }
     }
   }
-
   res.status(200).send('OK');
 });
 
