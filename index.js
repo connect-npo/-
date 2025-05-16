@@ -58,11 +58,10 @@ app.post('/webhook', middleware(config), async (req, res) => {
         }
 
         await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。
+  type: 'text',
+  text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313"
+});
 
-📞どうしようもないときは電話してね：090-4839-3313"
-        });
 
         const notifyFlex = {
           type: "flex",
