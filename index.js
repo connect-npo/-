@@ -14,10 +14,11 @@ const client = new Client(config);
 const OPENAI_API_KEY = process.env.YOUR_OPENAI_API_KEY;
 const GROUP_ID = process.env.GROUP_ID;
 
+// 危険ワード（拡充版）
 const dangerWords = [
   "しにたい", "死にたい", "自殺", "消えたい", "つらい", "助けて", "やめたい", "苦しい",
-  "学校に行けない", "殴られる", "たたかれる", "リストカット", "オーバードーズ", "いじめ",
-  "お金が足りない", "貧乏", "こわい", "怖い", "無視"
+  "学校に行けない", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
+  "いじめ", "お金が足りない", "貧乏", "こわい", "怖い", "無視", "独り", "さみしい", "眠れない"
 ];
 
 app.post('/webhook', middleware(config), async (req, res) => {
@@ -32,9 +33,10 @@ app.post('/webhook', middleware(config), async (req, res) => {
       if (detected) {
         await client.replyMessage(event.replyToken, {
           type: 'text',
-          text: '🍀辛い気持ち、ちゃんと伝えてくれてありがとう。わたしがそばにいるよ。ゆっくり話そうね。
+          text: '🍀辛い気持ちを伝えてくれてありがとう。
+ひとりじゃないよ。わたしがそばにいるからね。
 
-📞どうしようもないときは、こちらにお電話ください：090-4839-3313'
+📞どうしようもないときは、お電話ください：090-4839-3313'
         });
 
         await client.pushMessage(GROUP_ID, {
