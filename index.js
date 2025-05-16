@@ -4,7 +4,6 @@ const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
 
 const app = express();
-app.use(express.json());
 
 const config = {
   channelAccessToken: process.env.YOUR_CHANNEL_ACCESS_TOKEN,
