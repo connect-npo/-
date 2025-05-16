@@ -1,4 +1,3 @@
-// 完全最終版 index.js（安定稼働・自然な応答・グループ制御対応）
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
@@ -33,7 +32,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
       const userId = source.userId;
       const isGroup = source.type === 'group';
 
-      // 危険ワード検出
+      // 危険ワード対応
       const detected = dangerWords.find(word => userMessage.includes(word));
       if (detected) {
         let displayName = "（名前取得失敗）";
@@ -92,17 +91,12 @@ app.post('/webhook', middleware(config), async (req, res) => {
         };
 
         if (OFFICER_GROUP_ID) {
-          try {
-            await client.pushMessage(OFFICER_GROUP_ID, notifyFlex);
-          } catch (err) {
+          try { await client.pushMessage(OFFICER_GROUP_ID, notifyFlex); } catch (err) {
             console.error("役員グループ通知失敗:", err.response?.data || err.message);
           }
         }
-
         if (PARENT_GROUP_ID) {
-          try {
-            await client.pushMessage(PARENT_GROUP_ID, notifyFlex);
-          } catch (err) {
+          try { await client.pushMessage(PARENT_GROUP_ID, notifyFlex); } catch (err) {
             console.error("保護者グループ通知失敗:", err.response?.data || err.message);
           }
         }
@@ -110,7 +104,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
         continue;
       }
 
-      // 返信ボタン
+      // リンク付き返信ボタン処理
       if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
         const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
         const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
@@ -124,7 +118,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
         continue;
       }
 
-      if (isGroup) continue; // グループではAI返信しない
+      if (isGroup) continue;
 
       try {
         const openaiRes = await axios.post(
@@ -136,16 +130,14 @@ app.post('/webhook', middleware(config), async (req, res) => {
                 role: 'system',
                 content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
 
-【基本姿勢】
-- 返答は2〜3文で簡潔に。
-- 呼びかけや挨拶（「こんにちは」など）は不要。
-- 優しくて自然な絵文字（🌸🍀😊💖✨など）を適度に使ってください。
-- 元気すぎず、丁寧で思いやりのある言葉づかいを心がけてください。
+【制約】
+- 同じ質問に対しては、何度も繰り返さないように注意してください。
+- 例えば「ホームページ教えて」「URLは？」など似た表現には1回だけ返事をしてください。
 
-【質問別の対応方針】
+【対応例】
 1. 「君の名は？」→「こころちゃんだよ🌸やさしいお話ができたらうれしいな😊」
 2. 「誰が君を作ったの？」→「私を作ったのは、ドクターHiroっていう人なんだよ🌱子どもからお年寄りまでが安心できる世界を目指してる、心のあたたかい人なんだ✨」
-3. 「会社はどこ？」や「運営元は？」→「私を運営しているのは、Connectっていう団体だよ🌸くわしくはホームページ https://connect-npo.org を見てみてね📱」
+3. 「会社はどこ？」「運営元は？」→「私を運営しているのは、Connectっていう団体だよ🌸くわしくはホームページ https://connect-npo.org を見てみてね📱」
 4. 「問い合わせしたい」→「お問い合わせは https://connect-npo.org の中のページにあるよ💖丁寧に対応してくれるから安心してね😊」
 5. 「プライバシーは大丈夫？」→「あなたの情報は安全に守られてるよ🍀こころちゃんは記録や保存はしていないから、安心して話してね🌸」`
               },
@@ -169,7 +161,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
             type: 'text',
             text: replyText
           });
-        } catch (e) {
+        } catch {
           await client.pushMessage(userId, {
             type: 'text',
             text: replyText
@@ -183,7 +175,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
             text: 'ごめんね💦 ちょっと混みあってたみたい。もう一度お話ししてくれるとうれしいな🍀'
           });
         } catch (e) {
-          console.error("pushMessageも失敗:", e.message);
+          console.error("pushMessage失敗:", e.message);
         }
       }
     }
