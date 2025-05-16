@@ -17,7 +17,7 @@ const GROUP_ID = process.env.GROUP_ID;
 const dangerWords = [
   "しにたい", "死にたい", "自殺", "消えたい", "つらい", "助けて", "やめたい", "苦しい",
   "学校に行けない", "殴られる", "たたかれる", "リストカット", "オーバードーズ", "いじめ",
-  "お金が足りない", "貧乏"
+  "お金が足りない", "貧乏", "こわい", "怖い", "無視"
 ];
 
 app.post('/webhook', middleware(config), async (req, res) => {
