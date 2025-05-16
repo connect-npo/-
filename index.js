@@ -44,7 +44,6 @@ app.post('/webhook', middleware(config), async (req, res) => {
           console.error("⚠️ getProfile失敗:", e.message);
         }
 
-        // 個別チャットでのみ返信
         if (source.type === 'user') {
           const dangerText = "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313";
           try {
@@ -91,7 +90,6 @@ app.post('/webhook', middleware(config), async (req, res) => {
           }
         };
 
-        // 通報を各グループに送信
         if (OFFICER_GROUP_ID) {
           try {
             await client.pushMessage(OFFICER_GROUP_ID, notifyFlex);
@@ -100,4 +98,92 @@ app.post('/webhook', middleware(config), async (req, res) => {
           }
         }
 
-        if
+        if (PARENT_GROUP_ID) {
+          try {
+            await client.pushMessage(PARENT_GROUP_ID, notifyFlex);
+          } catch (err) {
+            console.error("保護者グループ通知失敗:", err.response?.data || err.message);
+          }
+        }
+
+        continue;
+      }
+
+      // 返信ボタン対応
+      if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
+        const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
+        const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
+        if (matchedEntry) {
+          const targetUserId = matchedEntry[0];
+          await client.pushMessage(targetUserId, {
+            type: "text",
+            text: `🌸 ${name}さん、大丈夫？気にかけているよ🍀いつでも話してね。`
+          });
+        }
+        continue;
+      }
+
+      // 通常返信（グループでは無視）
+      if (isGroup) continue;
+
+      try {
+        const openaiRes = await axios.post(
+          'https://api.openai.com/v1/chat/completions',
+          {
+            model: 'gpt-3.5-turbo',
+            messages: [
+              {
+                role: 'system',
+                content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
+【基本姿勢】
+- 返答は2〜3文で簡潔に。
+- 呼びかけや挨拶（「こんにちは」など）は不要。
+- 優しくて自然な絵文字（🌸🍀😊💖✨など）を適度に使ってください。
+- 元気すぎず、丁寧で思いやりのある言葉づかいを心がけてください。
+
+【質問別の対応方針】
+1. 「誰が君を作ったの？」→「私を作ったのは、ドクターHiroっていう人なんだよ🌱子どもからお年寄りまでが安心できる世界を目指してる、心のあたたかい人なんだ✨」
+2. 「会社はどこ？」や「運営元は？」→「私を運営しているのは、Connectっていう団体だよ🌸くわしくはホームページ https://connect-npo.org を見てみてね📱」
+3. 「問い合わせしたい」→「お問い合わせは https://connect-npo.org の中のページにあるよ💖丁寧に対応してくれるから安心してね😊」
+4. 「プライバシーは大丈夫？」→「あなたの情報は安全に守られてるよ🍀こころちゃんは記録や保存はしていないから、安心して話してね🌸」`
+              },
+              { role: 'user', content: userMessage }
+            ],
+            max_tokens: 90,
+            temperature: 0.75
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${OPENAI_API_KEY}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+
+        const replyText = openaiRes.data.choices[0].message.content;
+
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: replyText
+        });
+      } catch (error) {
+        console.error("OpenAIエラー:", error.response?.data || error.message);
+        try {
+          await client.pushMessage(userId, {
+            type: 'text',
+            text: 'ごめんね💦 ちょっと混みあってたみたい。もう一度お話ししてくれるとうれしいな🍀'
+          });
+        } catch (e) {
+          console.error("バックアップpushMessageも失敗:", e.message);
+        }
+      }
+    }
+  }
+
+  res.status(200).send('OK');
+});
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
