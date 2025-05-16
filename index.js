@@ -12,7 +12,8 @@ const config = {
 const client = new Client(config);
 
 const OPENAI_API_KEY = process.env.YOUR_OPENAI_API_KEY;
-const GROUP_ID = process.env.GROUP_ID;
+const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
+const PARENT_GROUP_ID = process.env.PARENT_GROUP_ID;
 
 const dangerWords = [
   "しにたい", "死にたい", "自殺", "消えたい", "つらい", "助けて", "やめたい", "苦しい",
@@ -20,26 +21,100 @@ const dangerWords = [
   "いじめ", "お金が足りない", "貧乏", "こわい", "怖い", "無視", "独り", "さみしい", "眠れない"
 ];
 
+// 保存用（簡易メモリ）： userId -> displayName
+const userDisplayMap = {};
+
 app.post('/webhook', middleware(config), async (req, res) => {
   const events = req.body.events;
 
-  await Promise.all(events.map(async (event) => {
+  for (const event of events) {
     if (event.type === 'message' && event.message.type === 'text') {
       const userMessage = event.message.text;
+      const userId = event.source.userId;
+      const groupId = event.source.groupId || null;
+
+      // 特殊処理：「@〇〇 さんに声かけします」に反応する返信機能
+      if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
+        const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
+        const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
+        if (matchedEntry) {
+          const targetUserId = matchedEntry[0];
+          await client.pushMessage(targetUserId, {
+            type: "text",
+            text: `🌸「${name}さん、大丈夫？気にかけているよ🍀必要ならまた話してね」`
+          });
+        }
+        continue;
+      }
 
       const detected = dangerWords.find(word => userMessage.includes(word));
       if (detected) {
+        let displayName = "（名前取得失敗）";
+        try {
+          const profile = await client.getProfile(userId);
+          displayName = profile.displayName;
+          userDisplayMap[userId] = displayName; // マップに保存
+        } catch (e) {
+          console.error("⚠️ getProfile失敗:", e.message);
+        }
+
         await client.replyMessage(event.replyToken, {
           type: 'text',
           text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313"
         });
 
-        await client.pushMessage(GROUP_ID, {
-          type: 'text',
-          text: `[通報] 危険ワード「${detected}」が検出されました。\nユーザー発言: 「${userMessage}」\n\n📣サポートが必要な方がいます。対応できる方は、個別に連絡またはサポート窓口にご相談ください。\n🌐 https://connect-npo.org/support`
-        });
+        const notifyFlex = {
+          type: "flex",
+          altText: "⚠ 通報通知",
+          contents: {
+            type: "bubble",
+            header: {
+              type: "box",
+              layout: "vertical",
+              contents: [{ type: "text", text: "⚠ 通報通知", weight: "bold", color: "#B71C1C", size: "md" }]
+            },
+            body: {
+              type: "box",
+              layout: "vertical",
+              spacing: "sm",
+              contents: [
+                { type: "text", text: `🧑‍🦱 ${displayName} さんから相談があります。`, wrap: true },
+                { type: "text", text: `🗨️ 内容:「${userMessage}」`, wrap: true }
+              ]
+            },
+            footer: {
+              type: "box",
+              layout: "horizontal",
+              contents: [
+                {
+                  type: "button",
+                  style: "primary",
+                  action: {
+                    type: "message",
+                    label: "返信します",
+                    text: `@${displayName} さんに声かけします`
+                  }
+                }
+              ]
+            }
+          }
+        };
 
-        return;
+        try {
+          await client.pushMessage(OFFICER_GROUP_ID, notifyFlex);
+        } catch (err) {
+          console.error("役員グループ通知失敗:", err.response?.data || err.message);
+        }
+
+        if (PARENT_GROUP_ID) {
+          try {
+            await client.pushMessage(PARENT_GROUP_ID, notifyFlex);
+          } catch (err) {
+            console.error("保護者グループ通知失敗:", err.response?.data || err.message);
+          }
+        }
+
+        continue;
       }
 
       try {
@@ -75,14 +150,14 @@ app.post('/webhook', middleware(config), async (req, res) => {
           text: replyText
         });
       } catch (error) {
-        console.error('OpenAIエラー:', error.response?.data || error.message);
+        console.error("OpenAIエラー:", error.response?.data || error.message);
         await client.replyMessage(event.replyToken, {
           type: 'text',
           text: 'ごめんね💦 今ちょっと混みあってるみたい。もう一度お話ししてくれるとうれしいな🍀'
         });
       }
     }
-  }));
+  }
 
   res.status(200).send('OK');
 });
