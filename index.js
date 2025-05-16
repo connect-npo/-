@@ -20,34 +20,25 @@ const dangerWords = [
   "お金が足りない", "貧乏"
 ];
 
-const kokoroProfile = {
-  name: "こころちゃん",
-  age: "14歳",
-  personality: "とてもやさしくて人に寄り添う性格",
-  creator: "ドクターHiro",
-  website: "https://connect-npo.org"
-};
-
 app.post('/webhook', middleware(config), async (req, res) => {
   const events = req.body.events;
 
-  const results = await Promise.all(events.map(async (event) => {
+  await Promise.all(events.map(async (event) => {
     if (event.type === 'message' && event.message.type === 'text') {
       const userMessage = event.message.text;
 
+      // 危険ワード検出
       const detected = dangerWords.find(word => userMessage.includes(word));
       if (detected) {
-        // 優しい励ましメッセージ
         await client.replyMessage(event.replyToken, {
           type: 'text',
-          text: `🌸辛い気持ち、抱えているんだね。
-大丈夫だよ、ひとりじゃないからね。
-わたしがそばにいるよ。ゆっくり話してね。
+          text: `🍀辛い気持ちを抱えているんだね。
+わたしがそばにいるから大丈夫。
+どんなことでも話してね。
 
-💡どうしようもないときは、お電話くださいね📞 090-4839-3313`
+📞どうしようもないときは電話してね：090-4839-3313`
         });
 
-        // 危険ワードをグループに通知
         await client.pushMessage(GROUP_ID, {
           type: 'text',
           text: `[通報] 危険ワード「${detected}」検出：
@@ -57,37 +48,45 @@ ${userMessage}`
         return;
       }
 
-      // 通常のChatGPT返信
-      const openaiRes = await axios.post(
-        'https://api.openai.com/v1/chat/completions',
-        {
-          model: 'gpt-3.5-turbo',
-          messages: [
-            {
-              role: 'system',
-              content: `あなたは14歳の女の子「こころちゃん」です。性格はとてもやさしく、人に寄り添います。元気すぎず、丁寧で安心感のある言葉遣いで話してください。作成者はドクターHiroで、ホームページは https://connect-npo.org です。`
-            },
-            {
-              role: 'user',
-              content: userMessage
+      try {
+        const openaiRes = await axios.post(
+          'https://api.openai.com/v1/chat/completions',
+          {
+            model: 'gpt-3.5-turbo',
+            messages: [
+              {
+                role: 'system',
+                content: `あなたは14歳の女の子「こころちゃん」です。性格はとてもやさしく、人に寄り添います。言葉遣いは柔らかく、安心感を与えるようにしてください。名乗りや自己紹介は不要です。返答は1～2文で簡潔にまとめ、絵文字は自然な範囲で使用してください。`
+              },
+              {
+                role: 'user',
+                content: userMessage
+              }
+            ],
+            max_tokens: 150,
+            temperature: 0.7
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${OPENAI_API_KEY}`,
+              'Content-Type': 'application/json'
             }
-          ],
-          max_tokens: 100
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
-            'Content-Type': 'application/json'
           }
-        }
-      );
+        );
 
-      const kokoroReply = openaiRes.data.choices[0].message.content;
+        const replyText = openaiRes.data.choices[0].message.content;
 
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: kokoroReply
-      });
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: replyText
+        });
+      } catch (error) {
+        console.error('OpenAIエラー:', error.response?.data || error.message);
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: 'ごめんね、ちょっと調子が悪いみたい。もう一度話しかけてくれるとうれしいな🍀'
+        });
+      }
     }
   }));
 
