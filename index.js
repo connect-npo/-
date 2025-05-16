@@ -44,12 +44,15 @@ app.post('/webhook', middleware(config), async (req, res) => {
           console.error("⚠️ getProfile失敗:", e.message);
         }
 
+        const dangerText = "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313";
+
         if (source.type === 'user') {
-          const dangerText = "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313";
           try {
             await client.replyMessage(event.replyToken, { type: 'text', text: dangerText });
-          } catch {
-            await client.pushMessage(userId, { type: 'text', text: dangerText });
+          } catch (err) {
+            if (err.message.includes('Invalid reply token')) {
+              await client.pushMessage(userId, { type: 'text', text: dangerText });
+            }
           }
         }
 
@@ -91,20 +94,16 @@ app.post('/webhook', middleware(config), async (req, res) => {
         };
 
         if (OFFICER_GROUP_ID) {
-          try { await client.pushMessage(OFFICER_GROUP_ID, notifyFlex); } catch (err) {
-            console.error("役員グループ通知失敗:", err.response?.data || err.message);
-          }
+          try { await client.pushMessage(OFFICER_GROUP_ID, notifyFlex); } catch (e) {}
         }
         if (PARENT_GROUP_ID) {
-          try { await client.pushMessage(PARENT_GROUP_ID, notifyFlex); } catch (err) {
-            console.error("保護者グループ通知失敗:", err.response?.data || err.message);
-          }
+          try { await client.pushMessage(PARENT_GROUP_ID, notifyFlex); } catch (e) {}
         }
 
         continue;
       }
 
-      // リンク付き返信ボタン処理
+      // 返信ボタン対応
       if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
         const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
         const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
@@ -128,23 +127,25 @@ app.post('/webhook', middleware(config), async (req, res) => {
             messages: [
               {
                 role: 'system',
-                content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
+                content: `あなたは14歳の女の子「こころちゃん」です。
+とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
+同じ質問に対しては何度も繰り返さず、自然でまとまりある1回分の返信にしてください。
 
-【制約】
-- 同じ質問に対しては、何度も繰り返さないように注意してください。
-- 例えば「ホームページ教えて」「URLは？」など似た表現には1回だけ返事をしてください。
+【基本姿勢】
+- 返答は2〜4文程度で自然にまとめる
+- 優しい絵文字（🌸🍀😊💖✨）を適度に使用
+- 元気すぎず、思いやり重視のやわらかな口調
 
-【対応例】
+【質問別の対応例】
 1. 「君の名は？」→「こころちゃんだよ🌸やさしいお話ができたらうれしいな😊」
-2. 「誰が君を作ったの？」→「私を作ったのは、ドクターHiroっていう人なんだよ🌱子どもからお年寄りまでが安心できる世界を目指してる、心のあたたかい人なんだ✨」
-3. 「会社はどこ？」「運営元は？」→「私を運営しているのは、Connectっていう団体だよ🌸くわしくはホームページ https://connect-npo.org を見てみてね📱」
-4. 「問い合わせしたい」→「お問い合わせは https://connect-npo.org の中のページにあるよ💖丁寧に対応してくれるから安心してね😊」
-5. 「プライバシーは大丈夫？」→「あなたの情報は安全に守られてるよ🍀こころちゃんは記録や保存はしていないから、安心して話してね🌸」`
+2. 「誰が君を作ったの？」→「ドクターHiroっていう人だよ🌱あたたかい社会を目指してるんだ✨」
+3. 「会社は？」→「Connectっていう団体が運営してるよ🌸 https://connect-npo.org を見てみてね📱」
+4. 「プライバシーは大丈夫？」→「安心してね🍀こころちゃんは記録しないから、気軽に話してね🌸」`
               },
               { role: 'user', content: userMessage }
             ],
-            max_tokens: 90,
-            temperature: 0.75
+            max_tokens: 120,
+            temperature: 0.7
           },
           {
             headers: {
@@ -157,29 +158,24 @@ app.post('/webhook', middleware(config), async (req, res) => {
         const replyText = openaiRes.data.choices[0].message.content;
 
         try {
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: replyText
-          });
-        } catch {
-          await client.pushMessage(userId, {
-            type: 'text',
-            text: replyText
-          });
+          await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+        } catch (err) {
+          if (err.message.includes('Invalid reply token')) {
+            await client.pushMessage(userId, { type: 'text', text: replyText });
+          }
         }
       } catch (error) {
         console.error("OpenAIエラー:", error.response?.data || error.message);
         try {
           await client.pushMessage(userId, {
             type: 'text',
-            text: 'ごめんね💦 ちょっと混みあってたみたい。もう一度お話ししてくれるとうれしいな🍀'
+            text: 'ごめんね💦ちょっと混み合ってたみたい。もう一度お話してくれるとうれしいな🍀'
           });
-        } catch (e) {
-          console.error("pushMessage失敗:", e.message);
-        }
+        } catch (e) {}
       }
     }
   }
+
   res.status(200).send('OK');
 });
 
