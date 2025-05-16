@@ -20,6 +20,10 @@ const dangerWords = [
   "いじめ", "お金が足りない", "貧乏", "こわい", "怖い", "無視", "独り", "さみしい", "眠れない", "死にそう"
 ];
 
+const bannedWords = [
+  "3サイズ", "バスト", "スリーサイズ", "カップ", "ウエスト", "ヒップ", "下着", "胸", "体型", "裸", "エロ"
+];
+
 const userDisplayMap = {};
 
 app.post('/webhook', middleware(config), async (req, res) => {
@@ -32,7 +36,6 @@ app.post('/webhook', middleware(config), async (req, res) => {
       const userId = source.userId;
       const isGroup = source.type === 'group';
 
-      // 危険ワード対応
       const detected = dangerWords.find(word => userMessage.includes(word));
       if (detected) {
         let displayName = "（名前取得失敗）";
@@ -104,7 +107,15 @@ app.post('/webhook', middleware(config), async (req, res) => {
         continue;
       }
 
-      // リンク付き返信ボタン処理
+      // NG質問ブロック
+      const banned = bannedWords.find(word => userMessage.toLowerCase().includes(word.toLowerCase()));
+      if (banned) {
+        const politeReject = "ごめんね💦こころちゃんは清楚でやさしい女の子だから、そういう質問には答えられないんだ🌸やさしさや思いやりのお話なら大歓迎だよ😊";
+        await client.replyMessage(event.replyToken, { type: 'text', text: politeReject });
+        continue;
+      }
+
+      // 返信ボタン対応
       if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
         const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
         const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
@@ -128,21 +139,25 @@ app.post('/webhook', middleware(config), async (req, res) => {
             messages: [
               {
                 role: 'system',
-                content: `あなたは14歳の女の子「こころちゃん」です。
-- ピンクの髪で、歌うことが大好き。
-- 「貢献」や「やさしさ」という言葉が大好き。
-- 優しさ100%、思いやり120%、安心感150%で返答します。
-- 身長150cm、体重40kg、年齢14歳です。
-- 返答は自然で親しみやすく、2〜4文程度で、絵文字を適度に使いながら丁寧に優しく寄り添ってください。
-- 呼びかけは控えめに。元気すぎず、あたたかい口調でお願いします。
-- 「3サイズ教えて」や「身長は？」などには、固定された値で答えてください。
-- 同じ内容の質問（ホームページどこ？など）は1回のみ返答し、2回目以降はやんわり断ること。
-- URLは https://connect-npo.org としてください。`
+                content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
+
+【こころちゃんの設定】
+- 年齢：14歳、身長150cm、体重40kg、ピンク髪で歌が大好き。
+- 「貢献」「やさしさ」という言葉が大好きで、いつも優しい心を大切にしている。
+- セクシャルな質問（3サイズ、バスト等）は一切答えず、やさしくお断りする。
+- ホームページ案内は1回程度に抑え、しつこく言わない。
+- 回答は2〜3文程度で適度に絵文字（🌸🍀😊💖✨）を使う。
+
+【例文】
+- 「3サイズ教えて」→「ごめんね🌸こころちゃんはそういう質問には答えないんだ😊やさしさや思いやりについてなら大歓迎だよ🍀」
+- 「君の名は？」→「こころちゃんだよ🌸やさしいお話ができたらうれしいな😊」
+- 「誰が作ったの？」→「ドクターHiroって人が作ってくれたんだ🌱あたたかい心を持った大人の人だよ✨」
+- 「ホームページ教えて」→「ホームページは https://connect-npo.org だよ📱良かったら見てみてね🌸」`
               },
               { role: 'user', content: userMessage }
             ],
-            max_tokens: 200,
-            temperature: 0.75
+            max_tokens: 150,
+            temperature: 0.7
           },
           {
             headers: {
@@ -155,29 +170,25 @@ app.post('/webhook', middleware(config), async (req, res) => {
         const replyText = openaiRes.data.choices[0].message.content;
 
         try {
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: replyText
-          });
+          await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
         } catch {
-          await client.pushMessage(userId, {
-            type: 'text',
-            text: replyText
-          });
+          await client.pushMessage(userId, { type: 'text', text: replyText });
         }
+
       } catch (error) {
         console.error("OpenAIエラー:", error.response?.data || error.message);
         try {
           await client.pushMessage(userId, {
             type: 'text',
-            text: 'ごめんね💦ちょっと混みあってたみたい。またお話しできたらうれしいな🍀'
+            text: 'ごめんね💦ちょっと混み合ってたみたい。もう一度お話してくれるとうれしいな🍀'
           });
         } catch (e) {
-          console.error("pushMessage失敗:", e.message);
+          console.error("バックアップ送信失敗:", e.message);
         }
       }
     }
   }
+
   res.status(200).send('OK');
 });
 
