@@ -1,5 +1,4 @@
-
-// 完全版 index.js（グループチャットでは危険ワード以外無反応）
+// 完全版 index.js（グループでは危険通知のみ応答）
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
@@ -48,9 +47,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
         if (!isGroup) {
           await client.replyMessage(event.replyToken, {
             type: 'text',
-            text: "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。
-
-📞どうしようもないときは電話してね：090-4839-3313"
+            text: `🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313`
           });
         }
 
@@ -110,24 +107,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
         continue;
       }
 
-      // 通常会話はグループではスキップ
-      if (isGroup) {
-        continue;
-      }
-
-      // 返信ボタン処理（グループでも有効）
-      if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
-        const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
-        const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
-        if (matchedEntry) {
-          const targetUserId = matchedEntry[0];
-          await client.pushMessage(targetUserId, {
-            type: "text",
-            text: `🌸 ${name}さん、大丈夫？気にかけているよ🍀いつでも話してね。`
-          });
-        }
-        continue;
-      }
+      if (isGroup) continue; // グループでは危険通知以外は無視
 
       try {
         const openaiRes = await axios.post(
@@ -138,6 +118,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
               {
                 role: 'system',
                 content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
+
 【基本姿勢】
 - 返答は2〜3文で簡潔に。
 - 呼びかけや挨拶（「こんにちは」など）は不要。
