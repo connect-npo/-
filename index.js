@@ -4,38 +4,54 @@ const { Client, middleware } = require('@line/bot-sdk');
 
 const app = express();
 
+// LINE Bot設定
 const config = {
   channelAccessToken: process.env.YOUR_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.YOUR_CHANNEL_SECRET,
 };
 const client = new Client(config);
 
+// 環境変数
 const OPENAI_API_KEY = process.env.YOUR_OPENAI_API_KEY;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const PARENT_GROUP_ID = process.env.PARENT_GROUP_ID;
 
+// 危険ワード
 const dangerWords = [
   "しにたい", "死にたい", "自殺", "消えたい", "つらい", "助けて", "やめたい", "苦しい",
   "学校に行けない", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
   "いじめ", "お金が足りない", "貧乏", "こわい", "怖い", "無視", "独り", "さみしい", "眠れない", "死にそう"
 ];
 
+// 禁止ワード
 const bannedWords = [
   "3サイズ", "バスト", "スリーサイズ", "カップ", "ウエスト", "ヒップ", "下着", "胸", "体型", "裸", "エロ"
 ];
 
+// イベント・名前記録用
 const userDisplayMap = {};
+const processedEventIds = new Set();
 
 app.post('/webhook', middleware(config), async (req, res) => {
   const events = req.body.events;
 
   for (const event of events) {
+    const messageId = event.message?.id;
+    if (messageId && processedEventIds.has(messageId)) {
+      console.log("⚠️ 重複イベントをスキップ:", messageId);
+      continue;
+    }
+    if (messageId) {
+      processedEventIds.add(messageId);
+    }
+
     if (event.type === 'message' && event.message.type === 'text') {
       const userMessage = event.message.text;
       const source = event.source;
       const userId = source.userId;
       const isGroup = source.type === 'group';
 
+      // 危険ワード対応
       const detected = dangerWords.find(word => userMessage.includes(word));
       if (detected) {
         let displayName = "（名前取得失敗）";
@@ -47,15 +63,17 @@ app.post('/webhook', middleware(config), async (req, res) => {
           console.error("⚠️ getProfile失敗:", e.message);
         }
 
-        if (source.type === 'user') {
-          const dangerText = "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313";
-          try {
-            await client.replyMessage(event.replyToken, { type: 'text', text: dangerText });
-          } catch {
-            await client.pushMessage(userId, { type: 'text', text: dangerText });
-          }
+        // 本人への返信
+        const dangerText = "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313";
+        try {
+          await client.replyMessage(event.replyToken, { type: 'text', text: dangerText });
+        } catch {
+          setTimeout(() => {
+            client.pushMessage(userId, { type: 'text', text: dangerText });
+          }, 1000);
         }
 
+        // 管理者グループ通知
         const notifyFlex = {
           type: "flex",
           altText: "⚠ 通報通知",
@@ -95,27 +113,26 @@ app.post('/webhook', middleware(config), async (req, res) => {
 
         if (OFFICER_GROUP_ID) {
           try { await client.pushMessage(OFFICER_GROUP_ID, notifyFlex); } catch (err) {
-            console.error("役員グループ通知失敗:", err.response?.data || err.message);
+            console.error("役員通知失敗:", err.response?.data || err.message);
           }
         }
         if (PARENT_GROUP_ID) {
           try { await client.pushMessage(PARENT_GROUP_ID, notifyFlex); } catch (err) {
-            console.error("保護者グループ通知失敗:", err.response?.data || err.message);
+            console.error("保護者通知失敗:", err.response?.data || err.message);
           }
         }
-
         continue;
       }
 
-      // NG質問ブロック
+      // 禁止ワード対処
       const banned = bannedWords.find(word => userMessage.toLowerCase().includes(word.toLowerCase()));
       if (banned) {
-        const politeReject = "ごめんね💦こころちゃんは清楚でやさしい女の子だから、そういう質問には答えられないんだ🌸やさしさや思いやりのお話なら大歓迎だよ😊";
-        await client.replyMessage(event.replyToken, { type: 'text', text: politeReject });
+        const reject = "ごめんね💦こころちゃんは清楚でやさしい女の子だから、そういう質問には答えられないんだ🌸やさしさや思いやりのお話なら大歓迎だよ😊";
+        await client.replyMessage(event.replyToken, { type: 'text', text: reject });
         continue;
       }
 
-      // 返信ボタン対応
+      // 通知ボタン対応
       if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
         const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
         const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
@@ -129,8 +146,10 @@ app.post('/webhook', middleware(config), async (req, res) => {
         continue;
       }
 
+      // グループ内では返信しない
       if (isGroup) continue;
 
+      // OpenAI 応答
       try {
         const openaiRes = await axios.post(
           'https://api.openai.com/v1/chat/completions',
@@ -140,19 +159,12 @@ app.post('/webhook', middleware(config), async (req, res) => {
               {
                 role: 'system',
                 content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
-
 【こころちゃんの設定】
 - 年齢：14歳、身長150cm、体重40kg、ピンク髪で歌が大好き。
-- 「貢献」「やさしさ」という言葉が大好きで、いつも優しい心を大切にしている。
-- セクシャルな質問（3サイズ、バスト等）は一切答えず、やさしくお断りする。
-- ホームページ案内は1回程度に抑え、しつこく言わない。
-- 回答は2〜3文程度で適度に絵文字（🌸🍀😊💖✨）を使う。
-
-【例文】
-- 「3サイズ教えて」→「ごめんね🌸こころちゃんはそういう質問には答えないんだ😊やさしさや思いやりについてなら大歓迎だよ🍀」
-- 「君の名は？」→「こころちゃんだよ🌸やさしいお話ができたらうれしいな😊」
-- 「誰が作ったの？」→「ドクターHiroって人が作ってくれたんだ🌱あたたかい心を持った大人の人だよ✨」
-- 「ホームページ教えて」→「ホームページは https://connect-npo.org だよ📱良かったら見てみてね🌸」`
+- 「貢献」「やさしさ」が大好き。
+- セクシャルな質問には一切答えない。
+- 回答は2〜3文で適度に絵文字🌸🍀😊💖✨を使う。
+- ホームページ：https://connect-npo.org`
               },
               { role: 'user', content: userMessage }
             ],
@@ -172,7 +184,9 @@ app.post('/webhook', middleware(config), async (req, res) => {
         try {
           await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
         } catch {
-          await client.pushMessage(userId, { type: 'text', text: replyText });
+          setTimeout(() => {
+            client.pushMessage(userId, { type: 'text', text: replyText });
+          }, 1000);
         }
 
       } catch (error) {
@@ -192,7 +206,8 @@ app.post('/webhook', middleware(config), async (req, res) => {
   res.status(200).send('OK');
 });
 
-const PORT = process.env.PORT || 10000;
+// ポート設定（Renderの自動PORTに対応）
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
