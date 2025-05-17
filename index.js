@@ -16,16 +16,22 @@ const OPENAI_API_KEY = process.env.YOUR_OPENAI_API_KEY;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const PARENT_GROUP_ID = process.env.PARENT_GROUP_ID;
 
-// 危険ワード
+// 危険ワード（通知が必要なワード）
 const dangerWords = [
-  "しにたい", "死にたい", "自殺", "消えたい", "つらい", "助けて", "やめたい", "苦しい",
-  "学校に行けない", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
-  "いじめ", "お金が足りない", "貧乏", "こわい", "怖い", "無視", "独り", "さみしい", "眠れない", "死にそう"
+  "しにたい", "死にたい", "自殺", "消えたい", "助けて", "やめたい", "苦しい",
+  "学校に行けない", "学校に行きたくない", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
+  "いじめ", "お金が足りない", "貧乏", "こわい", "怖い", "無視", "独り", "さみしい", "眠れない", "死にそう",
+  "パワハラ", "無理やり"
 ];
 
-// 禁止ワード
+// 共感対応ワード（通知は不要・やさしく返す）
+const sensitiveWords = [
+  "つらい", "胸が痛い", "疲れた", "しんどい", "涙が出る", "寂しい"
+];
+
+// 禁止ワード（性的表現など）
 const bannedWords = [
-  "3サイズ", "バスト", "スリーサイズ", "カップ", "ウエスト", "ヒップ", "下着", "胸", "体型", "裸", "エロ"
+  "3サイズ", "バスト", "スリーサイズ", "カップ", "ウエスト", "ヒップ", "下着", "体型", "裸", "エロ"
 ];
 
 // イベント・名前記録用
@@ -63,7 +69,6 @@ app.post('/webhook', middleware(config), async (req, res) => {
           console.error("⚠️ getProfile失敗:", e.message);
         }
 
-        // 本人への返信
         const dangerText = "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313";
         try {
           await client.replyMessage(event.replyToken, { type: 'text', text: dangerText });
@@ -73,7 +78,6 @@ app.post('/webhook', middleware(config), async (req, res) => {
           }, 1000);
         }
 
-        // 管理者グループ通知
         const notifyFlex = {
           type: "flex",
           altText: "⚠ 通報通知",
@@ -124,6 +128,14 @@ app.post('/webhook', middleware(config), async (req, res) => {
         continue;
       }
 
+      // 共感対応（通知しない）
+      const softDetected = sensitiveWords.find(word => userMessage.includes(word));
+      if (softDetected) {
+        const reply = "がんばってるね🌸 つらい時は休んでいいんだよ🍀こころちゃんはいつもそばにいるよ💖";
+        await client.replyMessage(event.replyToken, { type: 'text', text: reply });
+        continue;
+      }
+
       // 禁止ワード対処
       const banned = bannedWords.find(word => userMessage.toLowerCase().includes(word.toLowerCase()));
       if (banned) {
@@ -132,7 +144,6 @@ app.post('/webhook', middleware(config), async (req, res) => {
         continue;
       }
 
-      // 通知ボタン対応
       if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
         const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
         const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
@@ -146,10 +157,8 @@ app.post('/webhook', middleware(config), async (req, res) => {
         continue;
       }
 
-      // グループ内では返信しない
       if (isGroup) continue;
 
-      // OpenAI 応答
       try {
         const openaiRes = await axios.post(
           'https://api.openai.com/v1/chat/completions',
@@ -206,7 +215,6 @@ app.post('/webhook', middleware(config), async (req, res) => {
   res.status(200).send('OK');
 });
 
-// ポート設定（Renderの自動PORTに対応）
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
