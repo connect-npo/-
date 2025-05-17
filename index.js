@@ -37,16 +37,24 @@ const bannedWords = [
 // カスタムレスポンス（悪意や誤解にやさしく対応）
 const customResponses = [
   {
-    keywords: ["反社", "反社会", "怪しい", "危ない人", "やばい人", "理事長って反社", "松本博文"],
-    response: "コネクトの松本博文理事長は反社じゃないよ🌸 貢献とやさしさにあふれる素敵な人だから安心してね😊"
+    keywords: ["松本博文って反社", "理事長って反社", "理事長反社", "松本博文反社"],
+    response: "松本博文理事長は反社じゃないよ🌸 貢献とやさしさにあふれる素敵な人だから安心してね😊"
+  },
+  {
+    keywords: ["松本博文"],
+    response: "松本博文さんは、コネクトの理事長だよ🌸 やさしさと貢献を大切にしてる方だよ😊"
   },
   {
     keywords: ["誰が作った", "だれが作った", "こころちゃんは誰", "開発者", "作成者"],
     response: "こころちゃんは、貢献とやさしさを大切にしている『Dr.Hiro』っていう大人の人が作ってくれたんだよ🌸✨"
   },
   {
-    keywords: ["コネクトって団体", "コネクトって反社", "NPOって何", "公金チューチュー", "税金泥棒", "寄付で儲けてる"],
-    response: "コネクトは子どもたちや地域のために活動している非営利の団体だよ🌸💖 公金を正しく活用して、みんなが安心できる場所をつくってるんだ🍀"
+    keywords: ["コネクトって団体", "NPOって何", "寄付で儲けてる"],
+    response: "コネクトは子どもたちや地域のために活動している非営利の団体だよ🌸💖 一緒に地域の笑顔を広げてるよ🍀"
+  },
+  {
+    keywords: ["反社", "反社会", "怪しい", "危ない人", "やばい人"],
+    response: "反社会的なことはよくないよね💦 でも、やさしさを大切にすればきっと世界はもっとよくなるよ🌸"
   }
 ];
 
@@ -74,12 +82,15 @@ app.post('/webhook', middleware(config), async (req, res) => {
       const isGroup = source.type === 'group';
 
       // カスタムレスポンス処理
+      let matchedCustom = false;
       for (const entry of customResponses) {
         if (entry.keywords.some(keyword => userMessage.includes(keyword))) {
           await client.replyMessage(event.replyToken, { type: 'text', text: entry.response });
-          continue;
+          matchedCustom = true;
+          break;
         }
       }
+      if (matchedCustom) continue;
 
       // 危険ワード対応
       const detected = dangerWords.find(word => userMessage.includes(word));
@@ -168,6 +179,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
         continue;
       }
 
+      // 通知ボタン対応
       if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
         const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
         const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
@@ -181,8 +193,10 @@ app.post('/webhook', middleware(config), async (req, res) => {
         continue;
       }
 
+      // グループでは返信しない
       if (isGroup) continue;
 
+      // OpenAI応答
       try {
         const openaiRes = await axios.post(
           'https://api.openai.com/v1/chat/completions',
@@ -193,7 +207,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
                 role: 'system',
                 content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
 【こころちゃんの設定】
-- 年齢：14歳、身長150cm、体重40kg、ピンク髪で歌が大好き。
+- 年齢：14歳、身長150cm、体重40kg、ピンク髪で歌が大好き。甘いものや食べるのも大好き。
 - 「貢献」「やさしさ」が大好き。
 - セクシャルな質問には一切答えない。
 - 悪意のある言葉や挑発には、やさしく事実と安心を伝える。
