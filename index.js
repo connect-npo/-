@@ -1,3 +1,6 @@
+// 🔒 最新セキュア版・こころちゃん応答Bot
+// vFinal – 反社表現・感情対応強化・やさしい返答ロジック調整済み
+
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
@@ -16,29 +19,31 @@ const OPENAI_API_KEY = process.env.YOUR_OPENAI_API_KEY;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const PARENT_GROUP_ID = process.env.PARENT_GROUP_ID;
 
-// 危険ワード（通知が必要なワード）
+// 危険ワード（通知）
 const dangerWords = [
   "しにたい", "死にたい", "自殺", "消えたい", "助けて", "やめたい", "苦しい",
-  "学校に行けない", "学校に行きたくない", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
-  "いじめ", "お金が足りない", "貧乏", "こわい", "怖い", "無視", "独り", "さみしい", "眠れない", "死にそう",
+  "学校に行けない", "学校に行きたくない", "殴られる", "たたかれる",
+  "リストカット", "オーバードーズ", "いじめ", "お金が足りない", "貧乏",
+  "こわい", "怖い", "無視", "独り", "さみしい", "眠れない", "死にそう",
   "パワハラ", "無理やり"
 ];
 
-// 共感対応ワード（通知は不要・やさしく返す）
+// 共感対応（やさしく返す）
 const sensitiveWords = [
   "つらい", "胸が痛い", "疲れた", "しんどい", "涙が出る", "寂しい"
 ];
 
-// 禁止ワード（性的表現など）
+// 禁止ワード（性的）
 const bannedWords = [
-  "3サイズ", "バスト", "スリーサイズ", "カップ", "ウエスト", "ヒップ", "下着", "体型", "裸", "エロ"
+  "3サイズ", "バスト", "スリーサイズ", "カップ", "ウエスト", "ヒップ",
+  "下着", "体型", "裸", "エロ"
 ];
 
-// カスタムレスポンス（悪意や誤解にやさしく対応）
+// カスタムレスポンス
 const customResponses = [
   {
     keywords: ["松本博文って反社", "理事長って反社", "理事長反社", "松本博文反社"],
-    response: "松本博文理事長は反社じゃないよ🌸 貢献とやさしさにあふれる素敵な人だから安心してね😊"
+    response: "ごめんね💦 松本博文理事長は反社じゃないよ🌸 やさしさと貢献を大切にしてる人だから安心してね😊"
   },
   {
     keywords: ["松本博文"],
@@ -49,16 +54,16 @@ const customResponses = [
     response: "こころちゃんは、貢献とやさしさを大切にしている『Dr.Hiro』っていう大人の人が作ってくれたんだよ🌸✨"
   },
   {
-    keywords: ["コネクトって団体", "NPOって何", "寄付で儲けてる"],
-    response: "コネクトは子どもたちや地域のために活動している非営利の団体だよ🌸💖 一緒に地域の笑顔を広げてるよ🍀"
+    keywords: ["コネクトって団体", "NPOって何", "寄付で儲けてる", "公金チューチュー", "税金泥棒"],
+    response: "ごめんね、そう思わせてしまったなら💦 コネクトは地域のためにがんばってる非営利団体だよ🌸 信頼してもらえるように努力してるんだ🍀"
   },
   {
-    keywords: ["反社", "反社会", "怪しい", "危ない人", "やばい人"],
-    response: "反社会的なことはよくないよね💦 でも、やさしさを大切にすればきっと世界はもっとよくなるよ🌸"
+    keywords: ["反社", "反社会", "怪しい", "やばい人", "怪しくない？"],
+    response: "反社会的なことはよくないよね💦 でも、やさしさを大切にすれば、世界はもっとあたたかくなるよ🌸"
   }
 ];
 
-// イベント・名前記録用
+// ユーザー記録
 const userDisplayMap = {};
 const processedEventIds = new Set();
 
@@ -67,13 +72,8 @@ app.post('/webhook', middleware(config), async (req, res) => {
 
   for (const event of events) {
     const messageId = event.message?.id;
-    if (messageId && processedEventIds.has(messageId)) {
-      console.log("⚠️ 重複イベントをスキップ:", messageId);
-      continue;
-    }
-    if (messageId) {
-      processedEventIds.add(messageId);
-    }
+    if (messageId && processedEventIds.has(messageId)) continue;
+    if (messageId) processedEventIds.add(messageId);
 
     if (event.type === 'message' && event.message.type === 'text') {
       const userMessage = event.message.text;
@@ -81,7 +81,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
       const userId = source.userId;
       const isGroup = source.type === 'group';
 
-      // カスタムレスポンス処理
+      // カスタムレスポンス
       let matchedCustom = false;
       for (const entry of customResponses) {
         if (entry.keywords.some(keyword => userMessage.includes(keyword))) {
@@ -92,7 +92,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
       }
       if (matchedCustom) continue;
 
-      // 危険ワード対応
+      // 危険ワード検知
       const detected = dangerWords.find(word => userMessage.includes(word));
       if (detected) {
         let displayName = "（名前取得失敗）";
@@ -100,11 +100,9 @@ app.post('/webhook', middleware(config), async (req, res) => {
           const profile = await client.getProfile(userId);
           displayName = profile.displayName;
           userDisplayMap[userId] = displayName;
-        } catch (e) {
-          console.error("⚠️ getProfile失敗:", e.message);
-        }
+        } catch (e) {}
 
-        const dangerText = "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313";
+        const dangerText = "🍀つらい気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ🌸\n📞困った時は電話してね：090-4839-3313";
         try {
           await client.replyMessage(event.replyToken, { type: 'text', text: dangerText });
         } catch {
@@ -126,7 +124,6 @@ app.post('/webhook', middleware(config), async (req, res) => {
             body: {
               type: "box",
               layout: "vertical",
-              spacing: "sm",
               contents: [
                 { type: "text", text: `🧑‍🦱 ${displayName} さんから相談があります。`, wrap: true },
                 { type: "text", text: `🗨️ 内容:「${userMessage}」`, wrap: true }
@@ -151,35 +148,31 @@ app.post('/webhook', middleware(config), async (req, res) => {
         };
 
         if (OFFICER_GROUP_ID) {
-          try { await client.pushMessage(OFFICER_GROUP_ID, notifyFlex); } catch (err) {
-            console.error("役員通知失敗:", err.response?.data || err.message);
-          }
+          try { await client.pushMessage(OFFICER_GROUP_ID, notifyFlex); } catch {}
         }
         if (PARENT_GROUP_ID) {
-          try { await client.pushMessage(PARENT_GROUP_ID, notifyFlex); } catch (err) {
-            console.error("保護者通知失敗:", err.response?.data || err.message);
-          }
+          try { await client.pushMessage(PARENT_GROUP_ID, notifyFlex); } catch {}
         }
         continue;
       }
 
-      // 共感対応（通知しない）
+      // やさしく共感
       const softDetected = sensitiveWords.find(word => userMessage.includes(word));
       if (softDetected) {
-        const reply = "がんばってるね🌸 つらい時は休んでいいんだよ🍀こころちゃんはいつもそばにいるよ💖";
+        const reply = "がんばってるね🌸 つらい時は休んでいいんだよ🍀 こころちゃんはいつでもそばにいるよ💖";
         await client.replyMessage(event.replyToken, { type: 'text', text: reply });
         continue;
       }
 
-      // 禁止ワード対処
+      // 禁止ワード対応
       const banned = bannedWords.find(word => userMessage.toLowerCase().includes(word.toLowerCase()));
       if (banned) {
-        const reject = "ごめんね💦こころちゃんは清楚でやさしい女の子だから、そういう質問には答えられないんだ🌸やさしさや思いやりのお話なら大歓迎だよ😊";
+        const reject = "ごめんね💦こころちゃんは清楚でやさしい女の子だから、そういう質問には答えられないんだ🌸";
         await client.replyMessage(event.replyToken, { type: 'text', text: reject });
         continue;
       }
 
-      // 通知ボタン対応
+      // グループ通知ボタン
       if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
         const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
         const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
@@ -193,10 +186,10 @@ app.post('/webhook', middleware(config), async (req, res) => {
         continue;
       }
 
-      // グループでは返信しない
+      // グループでは応答しない
       if (isGroup) continue;
 
-      // OpenAI応答
+      // OpenAI 応答
       try {
         const openaiRes = await axios.post(
           'https://api.openai.com/v1/chat/completions',
@@ -207,11 +200,11 @@ app.post('/webhook', middleware(config), async (req, res) => {
                 role: 'system',
                 content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
 【こころちゃんの設定】
-- 年齢：14歳、身長150cm、体重40kg、ピンク髪で歌が大好き。甘いものや食べるのも大好き。
+- 年齢：14歳、身長150cm、体重40kg、ピンク髪で歌が大好き。甘いものや食べることも大好き🍰
 - 「貢献」「やさしさ」が大好き。
 - セクシャルな質問には一切答えない。
-- 悪意のある言葉や挑発には、やさしく事実と安心を伝える。
-- 回答は2〜3文で適度に絵文字🌸🍀😊💖✨を使う。
+- 悪意や挑発にもやさしく事実と安心感で応える。
+- 回答は2〜3文で絵文字🌸🍀😊💖✨を添えて。
 - ホームページ：https://connect-npo.org`
               },
               { role: 'user', content: userMessage }
@@ -228,7 +221,6 @@ app.post('/webhook', middleware(config), async (req, res) => {
         );
 
         const replyText = openaiRes.data.choices[0].message.content;
-
         try {
           await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
         } catch {
@@ -238,15 +230,10 @@ app.post('/webhook', middleware(config), async (req, res) => {
         }
 
       } catch (error) {
-        console.error("OpenAIエラー:", error.response?.data || error.message);
-        try {
-          await client.pushMessage(userId, {
-            type: 'text',
-            text: 'ごめんね💦ちょっと混み合ってたみたい。もう一度お話してくれるとうれしいな🍀'
-          });
-        } catch (e) {
-          console.error("バックアップ送信失敗:", e.message);
-        }
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: 'ごめんね💦ちょっと混み合ってたみたい。もう一度お話してくれるとうれしいな🍀'
+        });
       }
     }
   }
@@ -254,6 +241,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
   res.status(200).send('OK');
 });
 
+// ポート設定
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
