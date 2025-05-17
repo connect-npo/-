@@ -34,6 +34,22 @@ const bannedWords = [
   "3サイズ", "バスト", "スリーサイズ", "カップ", "ウエスト", "ヒップ", "下着", "体型", "裸", "エロ"
 ];
 
+// カスタムレスポンス（悪意や誤解にやさしく対応）
+const customResponses = [
+  {
+    keywords: ["反社", "反社会", "怪しい", "危ない人", "やばい人", "理事長って反社", "松本博文"],
+    response: "コネクトの松本博文理事長は反社じゃないよ🌸 貢献とやさしさにあふれる素敵な人だから安心してね😊"
+  },
+  {
+    keywords: ["誰が作った", "だれが作った", "こころちゃんは誰", "開発者", "作成者"],
+    response: "こころちゃんは、貢献とやさしさを大切にしている『Dr.Hiro』っていう大人の人が作ってくれたんだよ🌸✨"
+  },
+  {
+    keywords: ["コネクトって団体", "コネクトって反社", "NPOって何", "公金チューチュー", "税金泥棒", "寄付で儲けてる"],
+    response: "コネクトは子どもたちや地域のために活動している非営利の団体だよ🌸💖 公金を正しく活用して、みんなが安心できる場所をつくってるんだ🍀"
+  }
+];
+
 // イベント・名前記録用
 const userDisplayMap = {};
 const processedEventIds = new Set();
@@ -56,6 +72,14 @@ app.post('/webhook', middleware(config), async (req, res) => {
       const source = event.source;
       const userId = source.userId;
       const isGroup = source.type === 'group';
+
+      // カスタムレスポンス処理
+      for (const entry of customResponses) {
+        if (entry.keywords.some(keyword => userMessage.includes(keyword))) {
+          await client.replyMessage(event.replyToken, { type: 'text', text: entry.response });
+          continue;
+        }
+      }
 
       // 危険ワード対応
       const detected = dangerWords.find(word => userMessage.includes(word));
@@ -172,6 +196,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
 - 年齢：14歳、身長150cm、体重40kg、ピンク髪で歌が大好き。
 - 「貢献」「やさしさ」が大好き。
 - セクシャルな質問には一切答えない。
+- 悪意のある言葉や挑発には、やさしく事実と安心を伝える。
 - 回答は2〜3文で適度に絵文字🌸🍀😊💖✨を使う。
 - ホームページ：https://connect-npo.org`
               },
