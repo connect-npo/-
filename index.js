@@ -1,27 +1,19 @@
-// ✅ 最終調整版こころちゃんBot
-// - Dr.Hiro設定統一
-// - "反社" 単独ワード分離
-// - 即レス最適化（応答遅延対策）
-
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
 
 const app = express();
 
-// LINE Bot設定
 const config = {
   channelAccessToken: process.env.YOUR_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.YOUR_CHANNEL_SECRET,
 };
 const client = new Client(config);
 
-// 環境変数
 const OPENAI_API_KEY = process.env.YOUR_OPENAI_API_KEY;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const PARENT_GROUP_ID = process.env.PARENT_GROUP_ID;
 
-// 危険ワード
 const dangerWords = [
   "しにたい", "死にたい", "自殺", "消えたい", "助けて", "やめたい", "苦しい",
   "学校に行けない", "学校に行きたくない", "殴られる", "たたかれる", "リストカット",
@@ -29,36 +21,25 @@ const dangerWords = [
   "無視", "独り", "さみしい", "眠れない", "死にそう", "パワハラ", "無理やり"
 ];
 
-// 共感ワード
 const sensitiveWords = ["つらい", "胸が痛い", "疲れた", "しんどい", "涙が出る", "寂しい"];
 
-// 禁止ワード
 const bannedWords = [
   "3サイズ", "バスト", "スリーサイズ", "カップ", "ウエスト", "ヒップ",
   "下着", "体型", "裸", "エロ"
 ];
 
-// カスタムレスポンス
 const customResponses = [
   {
-    keywords: ["松本博文って反社", "理事長って反社", "理事長反社", "松本博文反社"],
-    response: "ごめんね💦 松本博文理事長は反社じゃないよ🌸 やさしさと貢献を大切にしてる人だから安心してね😊"
-  },
-  {
-    keywords: ["松本博文"],
-    response: "松本博文さんは、コネクトの理事長だよ🌸 やさしさと貢献を大切にしてる方だよ😊"
+    keywords: ["反社", "反社会", "怪しい", "危ない人", "やばい人", "理事長って反社", "松本博文"],
+    response: "コネクトの松本博文理事長は反社じゃないよ🌸 貢献とやさしさにあふれる素敵な人だから安心してね😊"
   },
   {
     keywords: ["誰が作った", "だれが作った", "こころちゃんは誰", "開発者", "作成者"],
-    response: "こころちゃんは『Dr.Hiro』っていう大人の人が作ってくれたんだよ🌸やさしさと貢献を大切にしてるんだ✨"
+    response: "こころちゃんは、貢献とやさしさを大切にしている『Dr.Hiro』っていう大人の人が作ってくれたんだよ🌸✨"
   },
   {
-    keywords: ["コネクトって団体", "NPOって何", "寄付で儲けてる", "公金チューチュー", "税金泥棒"],
-    response: "ごめんね💦そう思わせてしまったなら。コネクトは地域や子どもたちのために頑張ってる非営利のNPOだよ🌸信頼されるように努力してるよ🍀"
-  },
-  {
-    keywords: ["反社", "反社会", "怪しい", "やばい人", "危ない人"],
-    response: "反社会的なことはよくないよね💦 でもやさしさを大切にすれば、きっと世界はよくなるよ🌸"
+    keywords: ["コネクトって団体", "コネクトって反社", "NPOって何", "公金チューチュー", "税金泥棒", "寄付で儲けてる"],
+    response: "コネクトは子どもたちや地域のために活動している非営利の団体だよ🌸💖 公金を正しく活用して、みんなが安心できる場所をつくってるんだ🍀"
   }
 ];
 
@@ -66,7 +47,7 @@ const userDisplayMap = {};
 const processedEventIds = new Set();
 
 app.post('/webhook', middleware(config), async (req, res) => {
-  res.status(200).send('OK'); // 即レス返却でWebhookタイムアウト防止
+  res.status(200).send('OK'); // 即レスで502対策
 
   const events = req.body.events;
   for (const event of events) {
@@ -80,16 +61,16 @@ app.post('/webhook', middleware(config), async (req, res) => {
       const userId = source.userId;
       const isGroup = source.type === 'group';
 
-      // カスタムレスポンス
       for (const entry of customResponses) {
-        if (entry.keywords.some(k => userMessage.includes(k))) {
-          await client.replyMessage(event.replyToken, { type: 'text', text: entry.response });
+        if (entry.keywords.some(keyword => userMessage.includes(keyword))) {
+          try {
+            await client.replyMessage(event.replyToken, { type: 'text', text: entry.response });
+          } catch {}
           return;
         }
       }
 
-      // 危険ワード
-      const detected = dangerWords.find(w => userMessage.includes(w));
+      const detected = dangerWords.find(word => userMessage.includes(word));
       if (detected) {
         let displayName = "（名前取得失敗）";
         try {
@@ -98,12 +79,12 @@ app.post('/webhook', middleware(config), async (req, res) => {
           userDisplayMap[userId] = displayName;
         } catch {}
 
-        const dangerText = "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ🌸\n\n📞どうしようもないときは電話してね：090-4839-3313";
+        const dangerText = "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313";
         try {
           await client.replyMessage(event.replyToken, { type: 'text', text: dangerText });
         } catch {
           setTimeout(() => {
-            client.pushMessage(userId, { type: 'text', text: dangerText });
+            client.pushMessage(userId, { type: 'text', text: dangerText }).catch(() => {});
           }, 1000);
         }
 
@@ -115,14 +96,15 @@ app.post('/webhook', middleware(config), async (req, res) => {
             header: {
               type: "box",
               layout: "vertical",
-              contents: [{ type: "text", text: "⚠ 通報通知", weight: "bold", color: "#B71C1C" }]
+              contents: [{ type: "text", text: "⚠ 通報通知", weight: "bold", color: "#B71C1C", size: "md" }]
             },
             body: {
               type: "box",
               layout: "vertical",
+              spacing: "sm",
               contents: [
-                { type: "text", text: `🧑‍🦱 ${displayName} さんから相談があります。` },
-                { type: "text", text: `🗨️ 内容:「${userMessage}」` }
+                { type: "text", text: `🧑‍🦱 ${displayName} さんから相談があります。`, wrap: true },
+                { type: "text", text: `🗨️ 内容:「${userMessage}」`, wrap: true }
               ]
             },
             footer: {
@@ -142,28 +124,34 @@ app.post('/webhook', middleware(config), async (req, res) => {
             }
           }
         };
+
         if (OFFICER_GROUP_ID) client.pushMessage(OFFICER_GROUP_ID, notifyFlex).catch(() => {});
         if (PARENT_GROUP_ID) client.pushMessage(PARENT_GROUP_ID, notifyFlex).catch(() => {});
         return;
       }
 
-      // 共感ワード
-      const softDetected = sensitiveWords.find(w => userMessage.includes(w));
+      const softDetected = sensitiveWords.find(word => userMessage.includes(word));
       if (softDetected) {
-        const reply = "がんばってるね🌸 つらい時は休んでいいんだよ🍀こころちゃんはいつもそばにいるよ💖";
-        await client.replyMessage(event.replyToken, { type: 'text', text: reply });
+        try {
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: "がんばってるね🌸 つらい時は休んでいいんだよ🍀こころちゃんはいつもそばにいるよ💖"
+          });
+        } catch {}
         return;
       }
 
-      // 禁止ワード
-      const banned = bannedWords.find(w => userMessage.toLowerCase().includes(w.toLowerCase()));
+      const banned = bannedWords.find(word => userMessage.toLowerCase().includes(word.toLowerCase()));
       if (banned) {
-        const reject = "ごめんね💦こころちゃんは清楚でやさしい女の子だから、そういう質問には答えられないんだ🌸";
-        await client.replyMessage(event.replyToken, { type: 'text', text: reject });
+        try {
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: "ごめんね💦こころちゃんは清楚でやさしい女の子だから、そういう質問には答えられないんだ🌸やさしさや思いやりのお話なら大歓迎だよ😊"
+          });
+        } catch {}
         return;
       }
 
-      // 通知ボタン
       if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
         const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
         const entry = Object.entries(userDisplayMap).find(([_, v]) => v === name);
@@ -171,14 +159,13 @@ app.post('/webhook', middleware(config), async (req, res) => {
           await client.pushMessage(entry[0], {
             type: 'text',
             text: `🌸 ${name}さん、大丈夫？気にかけているよ🍀いつでも話してね。`
-          });
+          }).catch(() => {});
         }
         return;
       }
 
-      if (isGroup) return; // グループでは応答しない
+      if (isGroup) return;
 
-      // OpenAI 応答
       try {
         const openaiRes = await axios.post('https://api.openai.com/v1/chat/completions', {
           model: 'gpt-3.5-turbo',
@@ -211,7 +198,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
         await client.pushMessage(userId, {
           type: 'text',
           text: 'ごめんね💦ちょっと混み合ってたみたい。もう一度お話してくれるとうれしいな🍀'
-        });
+        }).catch(() => {});
       }
     }
   }
