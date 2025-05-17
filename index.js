@@ -1,57 +1,177 @@
-// ✪ 最終版「こころちゃんBot」
-// 犯社表現完全分離 / 悪意対応 / Dr.Hiro 統一 / 信頼ロジック強化
-
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
 
 const app = express();
+app.use(express.json());
 
-// LINE Bot設定
 const config = {
   channelAccessToken: process.env.YOUR_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.YOUR_CHANNEL_SECRET,
 };
 const client = new Client(config);
 
-// 環境変数
 const OPENAI_API_KEY = process.env.YOUR_OPENAI_API_KEY;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const PARENT_GROUP_ID = process.env.PARENT_GROUP_ID;
 
 // 危険ワード
-const dangerWords = ["\u3057\u306b\u305f\u3044", "\u81ea\u6bba", "\u6d88\u3048\u305f\u3044", "\u52a9\u3051\u3066", "\u3084\u3081\u305f\u3044", "\u82e6\u3057\u3044", "\u5b66\u6821\u306b\u884c\u3051\u306a\u3044", "\u6bb4\u3089\u308c\u308b", "\u305f\u305f\u304b\u308c\u308b", "\u30ea\u30b9\u30c8\u30ab\u30c3\u30c8", "\u30aa\u30fc\u30d0\u30fc\u30c9\u30fc\u30ba", "\u3044\u3058\u3081", "\u304a\u91d1\u304c\u8db3\u308a\u306a\u3044", "\u8ca7\u4e4f", "\u3053\u308f\u3044", "\u6016\u3044", "\u7121\u8996", "\u72ec\u308a", "\u3055\u307f\u3057\u3044", "\u7720\u308c\u306a\u3044", "\u6b7b\u306b\u305d\u3046", "\u30d1\u30ef\u30cf\u30e9", "\u7121\u7406\u3084\u308a"];
+const dangerWords = ["しにたい", "死にたい", "自殺", "消えたい", "助けて", "やめたい", "苦しい", "学校に行けない", "殴られる", "たたかれる", "リストカット", "オーバードーズ", "いじめ", "お金が足りない", "貧乏", "こわい", "怖い", "無視", "独り", "さみしい", "眠れない", "死にそう", "パワハラ", "無理やり"];
 
 // 共感ワード
-const sensitiveWords = ["\u3064\u3089\u3044", "\u80f8\u304c\u75db\u3044", "\u75b2\u308c\u305f", "\u3057\u3093\u3069\u3044", "\u6cea\u304c\u51fa\u308b", "\u5bc2\u3057\u3044"];
+const sensitiveWords = ["つらい", "胸が痛い", "疲れた", "しんどい", "涙が出る", "寂しい"];
 
 // 禁止ワード
-const bannedWords = ["3\u30b5\u30a4\u30ba", "\u30d0\u30b9\u30c8", "\u30b9\u30ea\u30fc\u30b5\u30a4\u30ba", "\u30ab\u30c3\u30d7", "\u30a6\u30a8\u30b9\u30c8", "\u30d2\u30c3\u30d7", "\u4e0b\u7740", "\u4f53\u578b", "\u88f8", "\u30a8\u30ed"];
+const bannedWords = ["3サイズ", "バスト", "スリーサイズ", "カップ", "ウエスト", "ヒップ", "下着", "体型", "裸", "エロ"];
 
 // カスタムレスポンス
 const customResponses = [
   {
-    keywords: ["\u677e\u672c\u535a\u6587\u3063\u3066\u53cd\u793e", "\u7406\u4e8b\u9577\u3063\u3066\u53cd\u793e", "\u7406\u4e8b\u9577\u53cd\u793e", "\u677e\u672c\u535a\u6587\u53cd\u793e"],
-    response: "\u3054\u3081\u3093\u306d\uff65\uff65\uff65 \u677e\u672c\u535a\u6587\u7406\u4e8b\u9577\u306f\u53cd\u793e\u3058\u3083\u306a\u3044\u3088\ud83c\udf38 \u3084\u3055\u3057\u3055\u3068\u8ca2\u732e\u3092\u5927\u5207\u306b\u3057\u3066\u308b\u4eba\u3060\u304b\u3089\u5b89\u5fc3\u3057\u3066\u306d\ud83d\ude0a"
+    keywords: ["松本博文って反社", "理事長って反社", "理事長反社", "松本博文反社"],
+    response: "ごめんね… 松本博文理事長は反社じゃないよ🌸 やさしさと貢献を大切にしてる人だから安心してね😊"
   },
   {
-    keywords: ["\u677e\u672c\u535a\u6587"],
-    response: "\u677e\u672c\u535a\u6587\u3055\u3093\u306f\u3001\u30b3\u30cd\u30af\u30c8\u306e\u7406\u4e8b\u9577\u3060\u3088\ud83c\udf38 \u3084\u3055\u3057\u3055\u3068\u8ca2\u732e\u3092\u5927\u5207\u306b\u3057\u3066\u308b\u65b9\u3060\u3088\ud83d\ude0a"
+    keywords: ["松本博文"],
+    response: "松本博文さんは、コネクトの理事長だよ🌸 やさしさと貢献を大切にしてる方だよ😊"
   },
   {
-    keywords: ["\u8ab0\u304c\u4f5c\u3063\u305f", "\u3060\u308c\u304c\u4f5c\u3063\u305f", "\u3053\u3053\u308d\u3061\u3083\u3093\u306f\u8ab0", "\u958b\u767a\u8005", "\u4f5c\u6210\u8005"],
-    response: "\u3053\u3053\u308d\u3061\u3083\u3093\u306f\u3001\u8ca2\u732e\u3068\u3084\u3055\u3057\u3055\u3092\u5927\u5207\u306b\u3057\u3066\u308b\u300eDr.Hiro\u300f\u3063\u3066\u3044\u3046\u304a\u3068\u306a\u306e\u4eba\u304c\u4f5c\u3063\u3066\u304f\u308c\u305f\u3093\u3060\u3088\ud83c\udf38\u2728"
+    keywords: ["誰が作った", "だれが作った", "こころちゃんは誰", "開発者", "作成者"],
+    response: "こころちゃんは、貢献とやさしさを大切にしている『Dr.Hiro』っていう大人の人が作ってくれたんだよ🌸✨"
   },
   {
-    keywords: ["\u30b3\u30cd\u30af\u30c8\u3063\u3066\u56e3\u4f53", "NPO\u3063\u3066\u4f55", "\u5bc4\u4ed8\u3067\u5229\u76ca", "\u516c\u91d1\u30c1\u30e5\u30fc\u30c1\u30e5\u30fc", "\u7a0e\u91d1\u6de1\u646f"],
-    response: "\u3054\u3081\u3093\u306d\ff65\ff65\ff65\u305d\u3046\u601d\u308f\u305b\u3061\u3083\u3063\u305f\u306a\u3089\u3002\u30b3\u30cd\u30af\u30c8\u306f\u5730\u57df\u3084\u5b50\u3069\u3082\u305f\u3061\u306e\u305f\u3081\u306b\u52aa\u529b\u3057\u3066\u308b\u975e\u55b6\u5229\u306eNPO\u3060\u3088\ud83c\udf38\u2728 \u4fe1\u983c\u3057\u3066\u3082\u3089\u3048\u308b\u3088\u3046\u304c\u3093\u3070\u3063\u3066\u308b\u3093\u3060\u3088\u2661"
+    keywords: ["コネクトって団体", "NPOって何", "寄付で儲けてる", "公金チューチュー", "税金泥棒"],
+    response: "ごめんね…そう思わせちゃったなら。コネクトは地域や子どもたちのために努力してる非営利のNPOだよ🌸✨ 信頼してもらえるようがんばってるんだよ♡"
   },
   {
-    keywords: ["\u53cd\u793e", "\u53cd\u793e\u4f1a", "\u602a\u3057\u3044", "\u3084\u3070\u3044\u4eba", "\u602a\u3057\u304f\u306a\u3044\u2026"],
-    response: "\u53cd\u793e\u4e3b\u7fa9\u306a\u3053\u3068\u306f\u3088\u304f\u306a\u3044\u3088\u306d\uff65\uff65\uff65\ud83d\ude2d \u3067\u3082\u3084\u3055\u3057\u3055\u3092\u5927\u5207\u306b\u3059\u308b\u3053\u3068\u3067\u3001\u305d\u308c\u306f\u3078\u3063\u3066\u3044\u304f\u3068\u4fe1\u3058\u3066\u3044\u308b\u3088\ud83c\udf38"
+    keywords: ["反社", "反社会", "怪しい", "やばい人", "怪しくない？"],
+    response: "反社会的なことはよくないよね…😢 でもやさしさを大切にすることで、それはへっていくって信じているよ🌸"
   }
 ];
 
-// ここまでで、カスタム対応は完璧にします
-// JS本体は保存した模型の既存構成に繰り込む形で実装します
-// ご要望の編集をすべて反映しましたので、詳細なJS全文はここに保存して管理していきます。
+const userDisplayMap = {};
+const processedEventIds = new Set();
+
+app.post('/webhook', middleware(config), async (req, res) => {
+  const events = req.body.events;
+
+  for (const event of events) {
+    if (event.type !== 'message' || event.message.type !== 'text') continue;
+
+    const userMessage = event.message.text;
+    const userId = event.source.userId;
+    const replyToken = event.replyToken;
+
+    // 重複回避
+    const messageId = event.message.id;
+    if (messageId && processedEventIds.has(messageId)) continue;
+    if (messageId) processedEventIds.add(messageId);
+
+    // グループ内では反応しない
+    if (event.source.type === 'group') continue;
+
+    // カスタムレスポンス
+    for (const entry of customResponses) {
+      if (entry.keywords.some(keyword => userMessage.includes(keyword))) {
+        await client.replyMessage(replyToken, { type: 'text', text: entry.response });
+        return;
+      }
+    }
+
+    // 危険ワード
+    const dangerHit = dangerWords.find(w => userMessage.includes(w));
+    if (dangerHit) {
+      let name = "（不明）";
+      try {
+        const profile = await client.getProfile(userId);
+        name = profile.displayName;
+        userDisplayMap[userId] = name;
+      } catch {}
+
+      const text = `🍀つらい気持ちを抱えているんだね。こころちゃんはそばにいるよ。\n📞困った時は電話してね：090-4839-3313`;
+      await client.replyMessage(replyToken, { type: 'text', text });
+
+      const notify = {
+        type: "flex",
+        altText: "⚠ 通報通知",
+        contents: {
+          type: "bubble",
+          body: {
+            type: "box",
+            layout: "vertical",
+            contents: [
+              { type: "text", text: `🧑‍🦱 ${name} さんから相談があります。`, wrap: true },
+              { type: "text", text: `🗨️ 内容:「${userMessage}」`, wrap: true }
+            ]
+          }
+        }
+      };
+
+      if (OFFICER_GROUP_ID) await client.pushMessage(OFFICER_GROUP_ID, notify).catch(() => {});
+      if (PARENT_GROUP_ID) await client.pushMessage(PARENT_GROUP_ID, notify).catch(() => {});
+      return;
+    }
+
+    // 共感ワード
+    const softHit = sensitiveWords.find(w => userMessage.includes(w));
+    if (softHit) {
+      const reply = "がんばってるね🌸 つらい時は休んでいいんだよ🍀こころちゃんはいつでもそばにいるよ💖";
+      await client.replyMessage(replyToken, { type: 'text', text: reply });
+      return;
+    }
+
+    // 禁止ワード
+    const bannedHit = bannedWords.find(w => userMessage.toLowerCase().includes(w.toLowerCase()));
+    if (bannedHit) {
+      const reply = "ごめんね💦こころちゃんは清楚でやさしい女の子だから、そういう質問には答えられないんだ🌸";
+      await client.replyMessage(replyToken, { type: 'text', text: reply });
+      return;
+    }
+
+    // 通常AI応答（OpenAI）
+    try {
+      const openaiRes = await axios.post(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          model: 'gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'system',
+              content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
+- 年齢：14歳、身長150cm、体重40kg、ピンク髪で歌が大好き。甘いものや食べることも大好き🍰
+- 「貢献」「やさしさ」が大好き。
+- セクシャルな質問には一切答えない。
+- 悪意や挑発にもやさしく事実と安心感で応える。
+- 回答は2〜3文で絵文字🌸🍀😊💖✨を添えて。
+- ホームページ：https://connect-npo.org`
+            },
+            { role: 'user', content: userMessage }
+          ],
+          max_tokens: 150,
+          temperature: 0.7
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${OPENAI_API_KEY}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      const reply = openaiRes.data.choices[0].message.content;
+      await client.replyMessage(replyToken, { type: 'text', text: reply });
+    } catch (e) {
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: 'ごめんね💦ちょっと混み合ってたみたい。もう一度話してくれるとうれしいな🍀'
+      });
+    }
+  }
+
+  res.status(200).send('OK');
+});
+
+// ✅ ポートをListen（Render対応）
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`✅ Server is running on port ${PORT}`);
+});
