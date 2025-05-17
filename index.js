@@ -35,11 +35,11 @@ const customResponses = [
   },
   {
     keywords: ["誰が作った", "だれが作った", "こころちゃんは誰", "開発者", "作成者"],
-    response: "こころちゃんは、貢献とやさしさを大切にしている『Dr.Hiro』っていう大人の人が作ってくれたんだよ🌸✨"
+    response: "こころちゃんは『Dr.Hiro』っていう大人の人が作ってくれたんだよ🌸やさしさと貢献を大切にしてるんだ✨"
   },
   {
-    keywords: ["コネクトって団体", "コネクトって反社", "NPOって何", "公金チューチュー", "税金泥棒", "寄付で儲けてる"],
-    response: "コネクトは子どもたちや地域のために活動している非営利の団体だよ🌸💖 公金を正しく活用して、みんなが安心できる場所をつくってるんだ🍀"
+    keywords: ["コネクトって団体", "NPOって何", "寄付で儲けてる", "公金チューチュー", "税金泥棒"],
+    response: "コネクトは地域や子どもたちのために活動している非営利のNPOだよ🌸 信頼されるよう努力してるんだ🍀"
   }
 ];
 
@@ -47,9 +47,9 @@ const userDisplayMap = {};
 const processedEventIds = new Set();
 
 app.post('/webhook', middleware(config), async (req, res) => {
-  res.status(200).send('OK'); // 即レスで502対策
-
+  res.status(200).send('OK');
   const events = req.body.events;
+
   for (const event of events) {
     const messageId = event.message?.id;
     if (messageId && processedEventIds.has(messageId)) continue;
@@ -63,9 +63,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
 
       for (const entry of customResponses) {
         if (entry.keywords.some(keyword => userMessage.includes(keyword))) {
-          try {
-            await client.replyMessage(event.replyToken, { type: 'text', text: entry.response });
-          } catch {}
+          await client.replyMessage(event.replyToken, { type: 'text', text: entry.response });
           return;
         }
       }
@@ -79,7 +77,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
           userDisplayMap[userId] = displayName;
         } catch {}
 
-        const dangerText = "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ。どんなことでも話してね。\n\n📞どうしようもないときは電話してね：090-4839-3313";
+        const dangerText = "🍀辛い気持ちを抱えているんだね。わたしがそばにいるから大丈夫だよ🌸\n\n📞どうしようもないときは電話してね：090-4839-3313";
         try {
           await client.replyMessage(event.replyToken, { type: 'text', text: dangerText });
         } catch {
@@ -132,23 +130,19 @@ app.post('/webhook', middleware(config), async (req, res) => {
 
       const softDetected = sensitiveWords.find(word => userMessage.includes(word));
       if (softDetected) {
-        try {
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: "がんばってるね🌸 つらい時は休んでいいんだよ🍀こころちゃんはいつもそばにいるよ💖"
-          });
-        } catch {}
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: "がんばってるね🌸 つらい時は休んでいいんだよ🍀こころちゃんはいつもそばにいるよ💖"
+        });
         return;
       }
 
       const banned = bannedWords.find(word => userMessage.toLowerCase().includes(word.toLowerCase()));
       if (banned) {
-        try {
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: "ごめんね💦こころちゃんは清楚でやさしい女の子だから、そういう質問には答えられないんだ🌸やさしさや思いやりのお話なら大歓迎だよ😊"
-          });
-        } catch {}
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: "ごめんね💦こころちゃんは清楚でやさしい女の子だから、そういう質問には答えられないんだ🌸"
+        });
         return;
       }
 
@@ -172,14 +166,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
           messages: [
             {
               role: 'system',
-              content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
-【こころちゃんの設定】
-- 年齢：14歳、身長150cm、体重40kg、ピンク髪で歌が大好き。
-- 「貢献」「やさしさ」が大好き。
-- セクシャルな質問には一切答えない。
-- 悪意のある言葉や挑発には、やさしく事実と安心を伝える。
-- 回答は2〜3文で絵文字🌸🍀😊💖✨を使う。
-- ホームページ：https://connect-npo.org`
+              content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。政治・宗教・宣伝の話題は避け、聞かれた場合はやんわりかわすようにしてください。`
             },
             { role: 'user', content: userMessage }
           ],
