@@ -64,12 +64,12 @@ app.post('/webhook', middleware(config), async (req, res) => {
 
     if (event.type !== 'message' || event.message.type !== 'text') continue;
 
-    const userMessage = event.message.text;
+    const userMessage = event.message.text.trim();
     const userId = event.source.userId;
     const isGroup = event.source.type === 'group';
 
-    // 理事長直通電話番号を受け取った場合の処理
-    if (userMessage === "090-4839-3313 に電話する") {
+    // 理事長直通電話番号を含む場合の対応（完全一致でなく部分一致）
+    if (userMessage.includes("090-4839-3313")) {
       await client.replyMessage(event.replyToken, {
         type: 'text',
         text: "この番号はコネクトの理事長・松本博文さんへの直通電話だよ📞🌸\n忙しい時間帯などで電話に出られないこともあるけど、まじめに活動している方だから安心してね🍀\n必要なときだけ、落ち着いてかけてね😊"
@@ -100,14 +100,25 @@ app.post('/webhook', middleware(config), async (req, res) => {
         altText: "⚠ 命に関わる相談のご案内",
         contents: {
           type: "bubble",
-          header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "🌸 命の相談はこちらへ", weight: "bold", size: "md", color: "#B71C1C" }] },
+          header: {
+            type: "box",
+            layout: "vertical",
+            contents: [{ type: "text", text: "🌸 命の相談はこちらへ", weight: "bold", size: "md", color: "#B71C1C" }]
+          },
           body: {
-            type: "box", layout: "vertical", spacing: "sm", contents: [
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents: [
               { type: "text", text: "今、つらい気持ちを抱えているんだね。\nこころちゃんはいつでもそばにいるよ🍀", wrap: true },
               { type: "text", text: "必要なときは、下の番号に電話やアクセスしてね。", wrap: true },
               { type: "separator", margin: "md" },
               {
-                type: "box", layout: "vertical", margin: "md", spacing: "sm", contents: [
+                type: "box",
+                layout: "vertical",
+                margin: "md",
+                spacing: "sm",
+                contents: [
                   { type: "button", style: "primary", action: { type: "uri", label: "東京都こころ相談（24時間）", uri: "tel:0570087478" } },
                   { type: "button", style: "primary", action: { type: "uri", label: "いのちの電話（10時〜22時）", uri: "tel:0120783556" } },
                   { type: "button", style: "primary", action: { type: "uri", label: "チャイルドライン（16時〜21時）", uri: "tel:0120997777" } },
@@ -184,10 +195,8 @@ app.post('/webhook', middleware(config), async (req, res) => {
       continue;
     }
 
-    // グループ内ではAI応答を無効
     if (isGroup) continue;
 
-    // OpenAI 応答
     try {
       const openaiRes = await axios.post(
         'https://api.openai.com/v1/chat/completions',
