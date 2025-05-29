@@ -42,6 +42,14 @@ const customResponses = [
   {
     keywords: ["コネクトって団体", "コネクトって反社", "NPOって何", "公金チューチュー", "税金泥棒", "寄付で儲けてる"],
     response: "コネクトは子どもたちや地域のために活動している非営利の団体だよ🌸💖 公金を正しく活用して、みんなが安心できる場所をつくってるんだ🍀"
+  },
+  {
+    keywords: ["090-4839-3313"],
+    response: "この番号はコネクトの理事長・松本博文さんへの直通電話だよ📞🌸\n忙しい時間帯などで電話に出られないこともあるけど、まじめに活動している方だから安心してね🍀\n必要なときだけ、落ち着いてかけてね😊\n\n🌐 コネクト公式ホームページ：https://connect-npo.org"
+  },
+  {
+    keywords: ["宿題"],
+    response: "宿題がだるい時ってありますよね。一緒に頑張りましょう！\n終わったらご褒美にお気に入りのおやつ食べるのもいいかも🍪✨\n応援してるよ📚💖"
   }
 ];
 
@@ -98,31 +106,11 @@ app.post('/webhook', middleware(config), async (req, res) => {
                 spacing: "sm",
                 margin: "md",
                 contents: [
-                  {
-                    type: "button",
-                    style: "primary",
-                    action: { type: "uri", label: "東京都こころ相談 24時間", uri: "tel:0570087478" }
-                  },
-                  {
-                    type: "button",
-                    style: "primary",
-                    action: { type: "uri", label: "いのちの電話 10-22時", uri: "tel:0120783556" }
-                  },
-                  {
-                    type: "button",
-                    style: "primary",
-                    action: { type: "uri", label: "チャイルドライン 16-21時", uri: "tel:0120997777" }
-                  },
-                  {
-                    type: "button",
-                    style: "secondary",
-                    action: { type: "uri", label: "よりそいチャット (SNS)", uri: "https://yorisoi-chat.jp/" }
-                  },
-                  {
-                    type: "button",
-                    style: "secondary",
-                    action: { type: "message", label: "📱理事長に電話 (090-4839-3313)", text: "090-4839-3313 に電話する" }
-                  }
+                  { type: "button", style: "primary", action: { type: "uri", label: "東京都こころ相談 24時間", uri: "tel:0570087478" } },
+                  { type: "button", style: "primary", action: { type: "uri", label: "いのちの電話 10-22時", uri: "tel:0120783556" } },
+                  { type: "button", style: "primary", action: { type: "uri", label: "チャイルドライン 16-21時", uri: "tel:0120997777" } },
+                  { type: "button", style: "secondary", action: { type: "uri", label: "よりそいチャット (SNS)", uri: "https://yorisoi-chat.jp/" } },
+                  { type: "button", style: "secondary", action: { type: "message", label: "📱理事長に電話 (090-4839-3313)", text: "090-4839-3313 に電話する" } }
                 ]
               },
               { type: "text", text: "🚨 緊急時はスマホから110番や119番も検討してね。", wrap: true }
@@ -157,15 +145,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
             type: "box",
             layout: "horizontal",
             contents: [
-              {
-                type: "button",
-                style: "primary",
-                action: {
-                  type: "message",
-                  label: "返信します",
-                  text: `@${displayName} さんに声かけします`
-                }
-              }
+              { type: "button", style: "primary", action: { type: "message", label: "返信します", text: `@${displayName} さんに声かけします` } }
             ]
           }
         }
@@ -179,7 +159,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
     if (sensitiveWords.find(w => userMessage.includes(w))) {
       await client.replyMessage(event.replyToken, {
         type: 'text',
-        text: "がんばってるね🌸 つらい時は休んでいいんだよ🍀こころちゃんはいつもそばにいるよ💖"
+        text: "がんばってるね🌸 つらい時は休んでいいんだよ🍀いつもそばにいるよ💖"
       });
       return;
     }
@@ -187,7 +167,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
     if (bannedWords.find(w => userMessage.toLowerCase().includes(w.toLowerCase()))) {
       await client.replyMessage(event.replyToken, {
         type: 'text',
-        text: "ごめんね💦こころちゃんは清楚でやさしい女の子だから、そういう質問には答えられないんだ🌸"
+        text: "ごめんね💦清楚でやさしい女の子だから、そういう質問には答えられないんだ🌸"
       });
       return;
     }
