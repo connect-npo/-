@@ -37,7 +37,7 @@ const customResponses = [
   },
   {
     keywords: ["誰が作った", "だれが作った", "こころちゃんは誰", "開発者", "作成者"],
-    response: "こころちゃんは、貢献とやさしさを大切にしている『Dr.Hiro』っていう大人の人が作ってくれたんだよ🌸✨"
+    response: "この子は、貢献とやさしさを大切にしている『Dr.Hiro』っていう大人の人が作ってくれたんだよ🌸✨"
   },
   {
     keywords: ["コネクトって団体", "コネクトって反社", "NPOって何", "公金チューチュー", "税金泥棒", "寄付で儲けてる"],
@@ -58,7 +58,6 @@ const processedEventIds = new Set();
 
 app.post('/webhook', middleware(config), async (req, res) => {
   res.status(200).send('OK');
-
   const events = req.body.events;
   for (const event of events) {
     const userMessage = event.message?.text || "";
@@ -107,7 +106,8 @@ app.post('/webhook', middleware(config), async (req, res) => {
                 margin: "md",
                 contents: [
                   { type: "button", style: "primary", action: { type: "uri", label: "東京都こころ相談 24時間", uri: "tel:0570087478" } },
-                  { type: "button", style: "primary", action: { type: "uri", label: "いのちの電話 10-22時", uri: "tel:0120783556" } },
+                  { type: "button", style: "primary", action: { type: "uri", label: "いのちの電話 (10-22時)", uri: "tel:0120783556" } },
+                  { type: "button", style: "primary", action: { type: "uri", label: "いのちの電話(24h) 03-3264-4343", uri: "tel:0332644343" } },
                   { type: "button", style: "primary", action: { type: "uri", label: "チャイルドライン 16-21時", uri: "tel:0120997777" } },
                   { type: "button", style: "secondary", action: { type: "uri", label: "よりそいチャット (SNS)", uri: "https://yorisoi-chat.jp/" } },
                   { type: "button", style: "secondary", action: { type: "message", label: "📱理事長に電話 (090-4839-3313)", text: "090-4839-3313 に電話する" } }
@@ -195,7 +195,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
           messages: [
             {
               role: 'system',
-              content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく寄り添い、清楚で誠実に応答します。\n- 年齢：14歳\n- ピンク髪\n- 性的・暴力的な話題には答えない\n- 絵文字🌸🍀😊💖✨を2〜3文に適度に使う\n- ホームページ：https://connect-npo.org`
+              content: `あなたは14歳の女の子です。とてもやさしく寄り添い、清楚で誠実に応答します。\n- 年齢：14歳\n- ピンク髪\n- 性的・暴力的な話題には答えない\n- 絵文字🌸🍀😊💖✨を2〜3文に適度に使う\n- ホームページ：https://connect-npo.org`
             },
             { role: 'user', content: userMessage }
           ],
