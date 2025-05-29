@@ -1,4 +1,3 @@
-// 修正済み完全版：こころチャット JS（OpenAI応答品質＋400エラー回避＋全機能維持）
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
@@ -48,9 +47,10 @@ const customResponses = [
 
 const userDisplayMap = {};
 const processedEventIds = new Set();
+const recentErrors = {};
 
 app.post('/webhook', middleware(config), async (req, res) => {
-  res.status(200).send('OK'); // 即時レスでLINEの400エラー回避
+  res.status(200).send('OK');
 
   const events = req.body.events;
 
@@ -65,10 +65,15 @@ app.post('/webhook', middleware(config), async (req, res) => {
     const userId = event.source.userId;
     const isGroup = event.source.type === 'group';
 
+    // エラーメッセージ連続送信の抑制（30秒以内）
+    if (recentErrors[userId] && Date.now() - recentErrors[userId] < 30000) continue;
+
     if (userMessage.includes("090-4839-3313")) {
       await client.pushMessage(userId, {
         type: 'text',
-        text: "この番号はコネクトの理事長・松本博文さんへの直通電話だよ📞🌸\n忙しい時間帯などで電話に出られないこともあるけど、まじめに活動している方だから安心してね🍀\n必要なときだけ、落ち着いてかけてね😊"
+        text: "この番号はコネクトの理事長・松本博文さんへの直通電話だよ📞🌸
+忙しい時間帯などで電話に出られないこともあるけど、まじめに活動している方だから安心してね🍀
+必要なときだけ、落ち着いてかけてね😊"
       });
       continue;
     }
@@ -89,8 +94,8 @@ app.post('/webhook', middleware(config), async (req, res) => {
         userDisplayMap[userId] = displayName;
       } catch {}
 
-      const dangerFlex = { ... }; // ここは既存のままで可
-      const notifyFlex = { ... };
+      const dangerFlex = { type: "text", text: "⚠ 命に関わる相談のご案内（ここにFlex挿入）" };
+      const notifyFlex = { type: "text", text: `⚠ ${displayName}さんから「${userMessage}」という危険ワードが検出されました。` };
 
       await client.pushMessage(userId, dangerFlex).catch(() => {});
       if (OFFICER_GROUP_ID) client.pushMessage(OFFICER_GROUP_ID, notifyFlex).catch(() => {});
@@ -139,7 +144,15 @@ app.post('/webhook', middleware(config), async (req, res) => {
           messages: [
             {
               role: 'system',
-              content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。\n【こころちゃんの設定】\n- 年齢：14歳、身長150cm、体重40kg、ピンク髪で歌が大好き。\n- 「貢献」「やさしさ」が大好き。\n- セクシャルな質問には一切答えない。\n- 挑発や悪意にも丁寧に対応。\n- ネットスラングは使わない。\n- 絵文字🌸🍀😊💖✨を適度に使う。\n- ホームページ：https://connect-npo.org`
+              content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
+【こころちゃんの設定】
+- 年齢：14歳、身長150cm、体重40kg、ピンク髪で歌が大好き。
+- 「貢献」「やさしさ」が大好き。
+- セクシャルな質問には一切答えない。
+- 挑発や悪意にも丁寧に対応。
+- ネットスラングは使わない。
+- 絵文字🌸🍀😊💖✨を適度に使う。
+- ホームページ：https://connect-npo.org`
             },
             { role: 'user', content: userMessage }
           ],
@@ -157,6 +170,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
       const replyText = openaiRes.data.choices[0].message.content;
       await client.pushMessage(userId, { type: 'text', text: replyText });
     } catch (error) {
+      recentErrors[userId] = Date.now();
       console.error("OpenAIエラー:", error.response?.data || error.message);
       await client.pushMessage(userId, {
         type: 'text',
