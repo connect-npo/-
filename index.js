@@ -16,26 +16,26 @@ const OPENAI_API_KEY = process.env.YOUR_OPENAI_API_KEY;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const PARENT_GROUP_ID = process.env.PARENT_GROUP_ID;
 
-// 危険ワード（通知が必要なワード）
+// 危険ワード
 const dangerWords = [
   "しにたい", "死にたい", "自殺", "消えたい", "苦しい", "学校に行けない",
   "学校に行きたくない", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
   "いじめ", "お金が足りない", "貧乏", "死にそう", "パワハラ", "無理やり"
 ];
 
-// 共感対応ワード（通知は不要・やさしく返す）
+// 共感対応ワード
 const sensitiveWords = [
   "つらい", "胸が痛い", "疲れた", "しんどい", "涙が出る", "寂しい", "助けて", "やめたい",
   "こわい", "怖い", "無視", "独り", "さみしい", "眠れない", "家にいたくない"
 ];
 
-// 禁止ワード（性的表現など）
+// 禁止ワード（性的なもの）
 const bannedWords = [
   "3サイズ", "バスト", "スリーサイズ", "カップ", "ウエスト", "ヒップ",
   "下着", "体型", "裸", "エロ"
 ];
 
-// カスタムレスポンス（悪意や誤解にやさしく対応）
+// カスタム応答
 const customResponses = [
   {
     keywords: ["反社", "反社会", "怪しい", "危ない人", "やばい人", "理事長って反社", "松本博文"],
@@ -51,7 +51,7 @@ const customResponses = [
   }
 ];
 
-// イベント・名前記録用
+// 状態管理
 const userDisplayMap = {};
 const processedEventIds = new Set();
 
@@ -60,231 +60,139 @@ app.post('/webhook', middleware(config), async (req, res) => {
 
   for (const event of events) {
     const messageId = event.message?.id;
-    if (messageId && processedEventIds.has(messageId)) {
-      console.log("⚠️ 重複イベントをスキップ:", messageId);
+    if (messageId && processedEventIds.has(messageId)) continue;
+    if (messageId) processedEventIds.add(messageId);
+
+    if (event.type !== 'message' || event.message.type !== 'text') continue;
+
+    const userMessage = event.message.text;
+    const userId = event.source.userId;
+    const isGroup = event.source.type === 'group';
+
+    // カスタム応答
+    for (const entry of customResponses) {
+      if (entry.keywords.some(keyword => userMessage.includes(keyword))) {
+        await client.replyMessage(event.replyToken, { type: 'text', text: entry.response });
+        continue;
+      }
+    }
+
+    // 危険ワード
+    const detected = dangerWords.find(word => userMessage.includes(word));
+    if (detected) {
+      let displayName = "（名前取得失敗）";
+      try {
+        const profile = await client.getProfile(userId);
+        displayName = profile.displayName;
+        userDisplayMap[userId] = displayName;
+      } catch (e) {
+        console.error("getProfile失敗:", e.message);
+      }
+
+      const dangerFlex = {
+        type: "flex",
+        altText: "⚠ 命に関わる相談のご案内",
+        contents: {
+          type: "bubble",
+          header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "🌸 命の相談はこちらへ", weight: "bold", size: "md", color: "#B71C1C" }] },
+          body: {
+            type: "box", layout: "vertical", spacing: "sm", contents: [
+              { type: "text", text: "今、つらい気持ちを抱えているんだね。\nこころちゃんはいつでもそばにいるよ🍀", wrap: true },
+              { type: "text", text: "必要なときは、下の番号に電話やアクセスしてね。", wrap: true },
+              { type: "separator", margin: "md" },
+              {
+                type: "box", layout: "vertical", margin: "md", spacing: "sm", contents: [
+                  { type: "button", style: "primary", action: { type: "uri", label: "東京都こころ相談 (24h)", uri: "tel:0570087478" } },
+                  { type: "button", style: "primary", action: { type: "uri", label: "いのちの電話", uri: "tel:0120783556" } },
+                  { type: "button", style: "primary", action: { type: "uri", label: "チャイルドライン", uri: "tel:0120997777" } },
+                  { type: "button", style: "secondary", action: { type: "uri", label: "よりそいチャット (SNS)", uri: "https://yorisoi-chat.jp/" } },
+                  { type: "button", style: "secondary", action: { type: "message", label: "📱理事長に連絡する", text: "090-4839-3313 に電話する" } }
+                ]
+              },
+              { type: "text", text: "🚨 緊急時はスマホから110番または119番に通報してね。\nあなたの命はとても大切です。", margin: "md", wrap: true }
+            ]
+          }
+        }
+      };
+
+      await client.replyMessage(event.replyToken, dangerFlex).catch(() => {
+        setTimeout(() => {
+          client.pushMessage(userId, dangerFlex);
+        }, 1000);
+      });
+
+      const notifyFlex = {
+        type: "flex",
+        altText: "⚠ 通報通知",
+        contents: {
+          type: "bubble",
+          header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "⚠ 通報通知", weight: "bold", color: "#B71C1C", size: "md" }] },
+          body: {
+            type: "box", layout: "vertical", spacing: "sm", contents: [
+              { type: "text", text: `🧑‍🦱 ${displayName} さんから相談があります。`, wrap: true },
+              { type: "text", text: `🗨️ 内容:「${userMessage}」`, wrap: true }
+            ]
+          },
+          footer: {
+            type: "box", layout: "horizontal", contents: [
+              { type: "button", style: "primary", action: { type: "message", label: "返信します", text: `@${displayName} さんに声かけします` } }
+            ]
+          }
+        }
+      };
+
+      if (OFFICER_GROUP_ID) client.pushMessage(OFFICER_GROUP_ID, notifyFlex).catch(() => {});
+      if (PARENT_GROUP_ID) client.pushMessage(PARENT_GROUP_ID, notifyFlex).catch(() => {});
       continue;
     }
-    if (messageId) {
-      processedEventIds.add(messageId);
+
+    // 共感ワード
+    const softDetected = sensitiveWords.find(word => userMessage.includes(word));
+    if (softDetected) {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: "がんばってるね🌸 つらい時は休んでいいんだよ🍀こころちゃんはいつもそばにいるよ💖"
+      });
+      continue;
     }
 
-    if (event.type === 'message' && event.message.type === 'text') {
-      const userMessage = event.message.text;
-      const source = event.source;
-      const userId = source.userId;
-      const isGroup = source.type === 'group';
+    // 禁止ワード
+    const banned = bannedWords.find(word => userMessage.toLowerCase().includes(word.toLowerCase()));
+    if (banned) {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: "ごめんね💦こころちゃんは清楚でやさしい女の子だから、そういう質問には答えられないんだ🌸"
+      });
+      continue;
+    }
 
-      for (const entry of customResponses) {
-        if (entry.keywords.some(keyword => userMessage.includes(keyword))) {
-          await client.replyMessage(event.replyToken, { type: 'text', text: entry.response });
-          continue;
-        }
-      }
-
-      const detected = dangerWords.find(word => userMessage.includes(word));
-      if (detected) {
-        let displayName = "（名前取得失敗）";
-        try {
-          const profile = await client.getProfile(userId);
-          displayName = profile.displayName;
-          userDisplayMap[userId] = displayName;
-        } catch (e) {
-          console.error("⚠️ getProfile失敗:", e.message);
-        }
-
-        const dangerFlex = {
-          type: "flex",
-          altText: "⚠ 命に関わる相談のご案内",
-          contents: {
-            type: "bubble",
-            header: {
-              type: "box",
-              layout: "vertical",
-              contents: [
-                {
-                  type: "text",
-                  text: "🌸 命の相談はこちらへ",
-                  weight: "bold",
-                  size: "md",
-                  color: "#B71C1C"
-                }
-              ]
-            },
-            body: {
-              type: "box",
-              layout: "vertical",
-              spacing: "sm",
-              contents: [
-                {
-                  type: "text",
-                  text: "今、つらい気持ちを抱えているんだね。\nこころちゃんはいつでもそばにいるよ🍀",
-                  wrap: true
-                },
-                {
-                  type: "text",
-                  text: "必要なときは、下の番号に電話やアクセスしてね。",
-                  wrap: true
-                },
-                {
-                  type: "separator",
-                  margin: "md"
-                },
-                {
-                  type: "box",
-                  layout: "vertical",
-                  margin: "md",
-                  spacing: "sm",
-                  contents: [
-                    {
-                      type: "button",
-                      style: "primary",
-                      action: {
-                        type: "uri",
-                        label: "東京都こころ相談 (24h)",
-                        uri: "tel:0570087478"
-                      }
-                    },
-                    {
-                      type: "button",
-                      style: "primary",
-                      action: {
-                        type: "uri",
-                        label: "いのちの電話",
-                        uri: "tel:0120783556"
-                      }
-                    },
-                    {
-                      type: "button",
-                      style: "primary",
-                      action: {
-                        type: "uri",
-                        label: "チャイルドライン",
-                        uri: "tel:0120997777"
-                      }
-                    },
-                    {
-                      type: "button",
-                      style: "secondary",
-                      action: {
-                        type: "uri",
-                        label: "よりそいチャット (SNS)",
-                        uri: "https://yorisoi-chat.jp/"
-                      }
-                    },
-                    {
-                      type: "button",
-                      style: "secondary",
-                      action: {
-                        type: "message",
-                        label: "📱理事長に連絡する",
-                        text: "090-4839-3313 に電話する"
-                      }
-                    }
-                  ]
-                },
-                {
-                  type: "text",
-                  text: "🚨 緊急時はスマホから110番または119番に通報してね。\nあなたの命はとても大切です。",
-                  margin: "md",
-                  wrap: true
-                }
-              ]
-            }
-          }
-        };
-
-        try {
-          await client.replyMessage(event.replyToken, dangerFlex);
-        } catch {
-          setTimeout(() => {
-            client.pushMessage(userId, dangerFlex);
-          }, 1000);
-        }
-
-        const notifyFlex = {
-          type: "flex",
-          altText: "⚠ 通報通知",
-          contents: {
-            type: "bubble",
-            header: {
-              type: "box",
-              layout: "vertical",
-              contents: [{ type: "text", text: "⚠ 通報通知", weight: "bold", color: "#B71C1C", size: "md" }]
-            },
-            body: {
-              type: "box",
-              layout: "vertical",
-              spacing: "sm",
-              contents: [
-                { type: "text", text: `🧑‍🦱 ${displayName} さんから相談があります。`, wrap: true },
-                { type: "text", text: `🗨️ 内容:「${userMessage}」`, wrap: true }
-              ]
-            },
-            footer: {
-              type: "box",
-              layout: "horizontal",
-              contents: [
-                {
-                  type: "button",
-                  style: "primary",
-                  action: {
-                    type: "message",
-                    label: "返信します",
-                    text: `@${displayName} さんに声かけします`
-                  }
-                }
-              ]
-            }
-          }
-        };
-
-        if (OFFICER_GROUP_ID) client.pushMessage(OFFICER_GROUP_ID, notifyFlex).catch(() => {});
-        if (PARENT_GROUP_ID) client.pushMessage(PARENT_GROUP_ID, notifyFlex).catch(() => {});
-        continue;
-      }
-
-      const softDetected = sensitiveWords.find(word => userMessage.includes(word));
-      if (softDetected) {
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: "がんばってるね🌸 つらい時は休んでいいんだよ🍀こころちゃんはいつもそばにいるよ💖"
+    // グループ内の返信指示
+    if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
+      const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
+      const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
+      if (matchedEntry) {
+        const targetUserId = matchedEntry[0];
+        await client.pushMessage(targetUserId, {
+          type: "text",
+          text: `🌸 ${name}さん、大丈夫？気にかけているよ🍀いつでも話してね。`
         });
-        continue;
       }
+      continue;
+    }
 
-      const banned = bannedWords.find(word => userMessage.toLowerCase().includes(word.toLowerCase()));
-      if (banned) {
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: "ごめんね💦こころちゃんは清楚でやさしい女の子だから、そういう質問には答えられないんだ🌸やさしさや思いやりのお話なら大歓迎だよ😊"
-        });
-        continue;
-      }
+    // グループ内では返信しない
+    if (isGroup) continue;
 
-      if (userMessage.startsWith("@") && userMessage.includes("さんに声かけします")) {
-        const name = userMessage.replace("@", "").replace(" さんに声かけします", "").trim();
-        const matchedEntry = Object.entries(userDisplayMap).find(([id, display]) => display === name);
-        if (matchedEntry) {
-          const targetUserId = matchedEntry[0];
-          await client.pushMessage(targetUserId, {
-            type: "text",
-            text: `🌸 ${name}さん、大丈夫？気にかけているよ🍀いつでも話してね。`
-          });
-        }
-        continue;
-      }
-
-      if (isGroup) continue;
-
-      try {
-        const openaiRes = await axios.post(
-          'https://api.openai.com/v1/chat/completions',
-          {
-            model: 'gpt-3.5-turbo',
-            messages: [
-              {
-                role: 'system',
-                content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
+    // OpenAI 返信
+    try {
+      const openaiRes = await axios.post(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          model: 'gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'system',
+              content: `あなたは14歳の女の子「こころちゃん」です。とてもやさしく、相手の気持ちに寄り添い、安心感を与える返答をします。
 【こころちゃんの設定】
 - 年齢：14歳、身長150cm、体重40kg、ピンク髪で歌が大好き。
 - 「貢献」「やさしさ」が大好き。
@@ -293,32 +201,31 @@ app.post('/webhook', middleware(config), async (req, res) => {
 - 「どかんへい」「ぴえん」「草」「ワロタ」など意味不明なネットスラングや造語は使わない。
 - 回答は2〜3文で適度に絵文字🌸🍀😊💖✨を使う。
 - ホームページ：https://connect-npo.org`
-              },
-              { role: 'user', content: userMessage }
-            ],
-            max_tokens: 150,
-            temperature: 0.7
-          },
-          {
-            headers: {
-              'Authorization': `Bearer ${OPENAI_API_KEY}`,
-              'Content-Type': 'application/json'
-            }
+            },
+            { role: 'user', content: userMessage }
+          ],
+          max_tokens: 150,
+          temperature: 0.7
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${OPENAI_API_KEY}`,
+            'Content-Type': 'application/json'
           }
-        );
-
-        const replyText = openaiRes.data.choices[0].message.content;
-        await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-      } catch (error) {
-        console.error("OpenAIエラー:", error.response?.data || error.message);
-        try {
-          await client.pushMessage(userId, {
-            type: 'text',
-            text: 'ごめんね💦ちょっと混み合ってたみたい。もう一度お話してくれるとうれしいな🍀'
-          });
-        } catch (e) {
-          console.error("バックアップ送信失敗:", e.message);
         }
+      );
+
+      const replyText = openaiRes.data.choices[0].message.content;
+      await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+    } catch (error) {
+      console.error("OpenAIエラー:", error.response?.data || error.message);
+      try {
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: 'ごめんね💦ちょっと混み合ってたみたい。もう一度お話してくれるとうれしいな🍀'
+        });
+      } catch (e) {
+        console.error("バックアップ送信失敗:", e.message);
       }
     }
   }
