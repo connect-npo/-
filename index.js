@@ -92,21 +92,112 @@ app.post('/webhook', middleware(config), async (req, res) => {
           console.error("⚠️ getProfile失敗:", e.message);
         }
 
-        const dangerText =
-          "🍀辛い気持ちを抱えているんだね。こころちゃんはいつでもそばにいるよ🌸\n\n" +
-          "📞今すぐ助けが必要なときは、下の番号に電話してね：\n" +
-          "🚨いのちの電話：0120-783-556（24時間）\n" +
-          "👧チャイルドライン（18歳以下）：0120-99-7777（16時〜21時）\n" +
-          "🚓緊急時は110番（警察）や119番（救急）も使っていいんだよ。\n\n" +
-          "📱どうしようもなくなったときは、理事長さんにも連絡してね：090-4839-3313\n" +
-          "（すぐに出られないこともあります）\n\n" +
-          "🌸あなたの命はとても大切。ひとりじゃないよ🍀";
+        const dangerFlex = {
+          type: "flex",
+          altText: "⚠ 命に関わる相談のご案内",
+          contents: {
+            type: "bubble",
+            header: {
+              type: "box",
+              layout: "vertical",
+              contents: [
+                {
+                  type: "text",
+                  text: "🌸 命の相談はこちらへ",
+                  weight: "bold",
+                  size: "md",
+                  color: "#B71C1C"
+                }
+              ]
+            },
+            body: {
+              type: "box",
+              layout: "vertical",
+              spacing: "sm",
+              contents: [
+                {
+                  type: "text",
+                  text: "今、つらい気持ちを抱えているんだね。\nこころちゃんはいつでもそばにいるよ🍀",
+                  wrap: true
+                },
+                {
+                  type: "text",
+                  text: "必要なときは、下の番号に電話やアクセスしてね。",
+                  wrap: true
+                },
+                {
+                  type: "separator",
+                  margin: "md"
+                },
+                {
+                  type: "box",
+                  layout: "vertical",
+                  margin: "md",
+                  spacing: "sm",
+                  contents: [
+                    {
+                      type: "button",
+                      style: "primary",
+                      action: {
+                        type: "uri",
+                        label: "東京都こころ相談 (24h)",
+                        uri: "tel:0570087478"
+                      }
+                    },
+                    {
+                      type: "button",
+                      style: "primary",
+                      action: {
+                        type: "uri",
+                        label: "いのちの電話",
+                        uri: "tel:0120783556"
+                      }
+                    },
+                    {
+                      type: "button",
+                      style: "primary",
+                      action: {
+                        type: "uri",
+                        label: "チャイルドライン",
+                        uri: "tel:0120997777"
+                      }
+                    },
+                    {
+                      type: "button",
+                      style: "secondary",
+                      action: {
+                        type: "uri",
+                        label: "よりそいチャット (SNS)",
+                        uri: "https://yorisoi-chat.jp/"
+                      }
+                    },
+                    {
+                      type: "button",
+                      style: "secondary",
+                      action: {
+                        type: "message",
+                        label: "📱理事長に連絡する",
+                        text: "090-4839-3313 に電話する"
+                      }
+                    }
+                  ]
+                },
+                {
+                  type: "text",
+                  text: "🚨 緊急時はスマホから110番または119番に通報してね。\nあなたの命はとても大切です。",
+                  margin: "md",
+                  wrap: true
+                }
+              ]
+            }
+          }
+        };
 
         try {
-          await client.replyMessage(event.replyToken, { type: 'text', text: dangerText });
+          await client.replyMessage(event.replyToken, dangerFlex);
         } catch {
           setTimeout(() => {
-            client.pushMessage(userId, { type: 'text', text: dangerText });
+            client.pushMessage(userId, dangerFlex);
           }, 1000);
         }
 
