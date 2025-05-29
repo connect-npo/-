@@ -29,7 +29,7 @@ const sensitiveWords = [
   "こわい", "怖い", "無視", "独り", "さみしい", "眠れない", "家にいたくない"
 ];
 
-// 禁止ワード（性的なもの）
+// 禁止ワード（性的表現など）
 const bannedWords = [
   "3サイズ", "バスト", "スリーサイズ", "カップ", "ウエスト", "ヒップ",
   "下着", "体型", "裸", "エロ"
@@ -51,7 +51,6 @@ const customResponses = [
   }
 ];
 
-// 状態管理
 const userDisplayMap = {};
 const processedEventIds = new Set();
 
@@ -69,6 +68,15 @@ app.post('/webhook', middleware(config), async (req, res) => {
     const userId = event.source.userId;
     const isGroup = event.source.type === 'group';
 
+    // 理事長直通電話番号を受け取った場合の処理
+    if (userMessage === "090-4839-3313 に電話する") {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: "この番号はコネクトの理事長・松本博文さんへの直通電話だよ📞🌸\n忙しい時間帯などで電話に出られないこともあるけど、まじめに活動している方だから安心してね🍀\n必要なときだけ、落ち着いてかけてね😊"
+      });
+      continue;
+    }
+
     // カスタム応答
     for (const entry of customResponses) {
       if (entry.keywords.some(keyword => userMessage.includes(keyword))) {
@@ -85,9 +93,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
         const profile = await client.getProfile(userId);
         displayName = profile.displayName;
         userDisplayMap[userId] = displayName;
-      } catch (e) {
-        console.error("getProfile失敗:", e.message);
-      }
+      } catch {}
 
       const dangerFlex = {
         type: "flex",
@@ -102,9 +108,9 @@ app.post('/webhook', middleware(config), async (req, res) => {
               { type: "separator", margin: "md" },
               {
                 type: "box", layout: "vertical", margin: "md", spacing: "sm", contents: [
-                  { type: "button", style: "primary", action: { type: "uri", label: "東京都こころ相談 (24h)", uri: "tel:0570087478" } },
-                  { type: "button", style: "primary", action: { type: "uri", label: "いのちの電話", uri: "tel:0120783556" } },
-                  { type: "button", style: "primary", action: { type: "uri", label: "チャイルドライン", uri: "tel:0120997777" } },
+                  { type: "button", style: "primary", action: { type: "uri", label: "東京都こころ相談（24時間）", uri: "tel:0570087478" } },
+                  { type: "button", style: "primary", action: { type: "uri", label: "いのちの電話（10時〜22時）", uri: "tel:0120783556" } },
+                  { type: "button", style: "primary", action: { type: "uri", label: "チャイルドライン（16時〜21時）", uri: "tel:0120997777" } },
                   { type: "button", style: "secondary", action: { type: "uri", label: "よりそいチャット (SNS)", uri: "https://yorisoi-chat.jp/" } },
                   { type: "button", style: "secondary", action: { type: "message", label: "📱理事長に連絡する", text: "090-4839-3313 に電話する" } }
                 ]
@@ -116,9 +122,7 @@ app.post('/webhook', middleware(config), async (req, res) => {
       };
 
       await client.replyMessage(event.replyToken, dangerFlex).catch(() => {
-        setTimeout(() => {
-          client.pushMessage(userId, dangerFlex);
-        }, 1000);
+        setTimeout(() => client.pushMessage(userId, dangerFlex), 1000);
       });
 
       const notifyFlex = {
@@ -180,10 +184,10 @@ app.post('/webhook', middleware(config), async (req, res) => {
       continue;
     }
 
-    // グループ内では返信しない
+    // グループ内ではAI応答を無効
     if (isGroup) continue;
 
-    // OpenAI 返信
+    // OpenAI 応答
     try {
       const openaiRes = await axios.post(
         'https://api.openai.com/v1/chat/completions',
@@ -197,9 +201,9 @@ app.post('/webhook', middleware(config), async (req, res) => {
 - 年齢：14歳、身長150cm、体重40kg、ピンク髪で歌が大好き。
 - 「貢献」「やさしさ」が大好き。
 - セクシャルな質問には一切答えない。
-- 悪意のある言葉や挑発には、やさしく事実と安心を伝える。
-- 「どかんへい」「ぴえん」「草」「ワロタ」など意味不明なネットスラングや造語は使わない。
-- 回答は2〜3文で適度に絵文字🌸🍀😊💖✨を使う。
+- 挑発や悪意にも丁寧に対応。
+- ネットスラングは使わない。
+- 絵文字🌸🍀😊💖✨を適度に使う。
 - ホームページ：https://connect-npo.org`
             },
             { role: 'user', content: userMessage }
@@ -219,14 +223,10 @@ app.post('/webhook', middleware(config), async (req, res) => {
       await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
     } catch (error) {
       console.error("OpenAIエラー:", error.response?.data || error.message);
-      try {
-        await client.pushMessage(userId, {
-          type: 'text',
-          text: 'ごめんね💦ちょっと混み合ってたみたい。もう一度お話してくれるとうれしいな🍀'
-        });
-      } catch (e) {
-        console.error("バックアップ送信失敗:", e.message);
-      }
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: 'ごめんね💦ちょっと混み合ってたみたい。もう一度お話してくれるとうれしいな🍀'
+      });
     }
   }
 
