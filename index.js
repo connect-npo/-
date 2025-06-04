@@ -69,7 +69,9 @@ app.post('/webhook', middleware(config), async (req, res) => {
 
     for (const entry of customResponses) {
       if (entry.keywords.some(keyword => userMessage.includes(keyword))) {
-        await client.replyMessage(event.replyToken, { type: 'text', text: entry.response });
+        if (!isGroup) {
+          await client.replyMessage(event.replyToken, { type: 'text', text: entry.response });
+        }
         return;
       }
     }
