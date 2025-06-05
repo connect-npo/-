@@ -1,4 +1,3 @@
-
 // GPTモデルを使い分けるよう修正したバージョン（教育安全対応強化）
 const express = require('express');
 const axios = require('axios');
@@ -151,8 +150,7 @@ app.post("/webhook", async (req, res) => {
       await client.pushMessage(OFFICER_GROUP_ID, alertFlex);
       await client.replyMessage(replyToken, {
         type: "text",
-        text: "つらい気持ちを話してくれてありがとう…🌸
-どうしようもない時は、こちらに電話してね📞 090-4839-3313"
+        text: "つらい気持ちを話してくれてありがとう…🌸\nどうしようもない時は、こちらに電話してね📞 090-4839-3313"
       });
       return;
     }
