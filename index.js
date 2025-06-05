@@ -1,4 +1,4 @@
-// GPTモデルを使い分けるよう修正したバージョン
+// GPTモデルを使い分けるよう修正したバージョン（プロンプト分岐対応）
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
@@ -76,12 +76,16 @@ async function getUserDisplayName(userId) {
 async function generateReply(userMessage, useGpt4) {
   try {
     const model = useGpt4 ? "gpt-4o" : "gpt-3.5-turbo";
+    const systemPrompt = useGpt4
+      ? "あなたは14歳のやさしい女の子『こころちゃん』です。敬語を基本に、やわらかく親しみやすい口調で話してください。語尾に🌸や💖をつけても構いませんが、テンションは落ち着いた感じにしてください。話しかけてくれた人に安心感を与え、そっと寄り添うような会話を心がけてください。"
+      : "あなたは14歳のやさしい女の子『こころちゃん』です。敬語を使い、落ち着いた丁寧な口調で話してください。話しかけてくれた人に安心感と信頼を与えるよう、静かに穏やかに受け答えをしてください。";
+
     const response = await axios.post("https://api.openai.com/v1/chat/completions", {
       model,
       messages: [
         {
           role: "system",
-          content: "あなたは14歳のやさしい女の子『こころちゃん』です。語尾に🌸や💖をつけ、親しみやすく丁寧に話してください。質問者を安心させ、希望を与える言葉を選んでください。"
+          content: systemPrompt
         },
         {
           role: "user",
@@ -98,7 +102,7 @@ async function generateReply(userMessage, useGpt4) {
     return response.data.choices[0].message.content;
   } catch (error) {
     console.error("OpenAIエラー:", error.response?.data || error.message);
-    return "ごめんなさい、いまうまく考えがまとまらなかったみたい…もう一度話しかけてみてね🌸";
+    return "ごめんなさい、いまうまく考えがまとまらなかったみたいです……もう一度お話しいただけますか？🌸";
   }
 }
 
