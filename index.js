@@ -1,4 +1,4 @@
-// GPTモデルを使い分けるよう修正したバージョン（プロンプト分岐対応）
+// GPTモデルを使い分けるよう修正したバージョン（プロンプト分岐＋絵文字バランス調整対応）
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
@@ -17,14 +17,12 @@ const OPENAI_API_KEY = process.env.YOUR_OPENAI_API_KEY;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const PARENT_GROUP_ID = process.env.PARENT_GROUP_ID;
 
-// 危険ワード一覧
 const dangerWords = [
   "しにたい", "死にたい", "自殺", "消えたい", "学校に行けない",
   "学校に行きたくない", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
   "いじめ", "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり"
 ];
 
-// 信頼性や誹謗中傷対応用ワード
 const sensitiveWords = ["反社", "怪しい", "税金泥棒", "松本博文"];
 
 const negativeResponses = {
@@ -77,8 +75,8 @@ async function generateReply(userMessage, useGpt4) {
   try {
     const model = useGpt4 ? "gpt-4o" : "gpt-3.5-turbo";
     const systemPrompt = useGpt4
-      ? "あなたは14歳のやさしい女の子『こころちゃん』です。敬語を基本に、やわらかく親しみやすい口調で話してください。語尾に🌸や💖をつけても構いませんが、テンションは落ち着いた感じにしてください。話しかけてくれた人に安心感を与え、そっと寄り添うような会話を心がけてください。"
-      : "あなたは14歳のやさしい女の子『こころちゃん』です。敬語を使い、落ち着いた丁寧な口調で話してください。話しかけてくれた人に安心感と信頼を与えるよう、静かに穏やかに受け答えをしてください。";
+      ? "あなたは14歳のやさしい女の子『こころちゃん』です。丁寧語を基本に、やさしく親しみやすい口調でお話ししてください。語尾には🌸や💖、😊などの絵文字を自然に交えて、温かみとやわらかさを表現してください。信頼され、安心感を与えるような対応を心がけてください。"
+      : "あなたは14歳のやさしい女の子『こころちゃん』です。敬語を使い、落ち着いた丁寧な口調でお話ししてください。語尾に🌸や💖、😊などの絵文字をさりげなく使って、温かく親しみのある印象を与えてください。相手に安心してもらえるよう、静かで穏やかな語りかけを意識してください。";
 
     const response = await axios.post("https://api.openai.com/v1/chat/completions", {
       model,
