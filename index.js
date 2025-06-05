@@ -1,3 +1,4 @@
+
 // GPTモデルを使い分けるよう修正したバージョン（教育安全対応強化）
 const express = require('express');
 const axios = require('axios');
@@ -91,14 +92,8 @@ async function generateReply(userMessage, useGpt4) {
     const response = await axios.post("https://api.openai.com/v1/chat/completions", {
       model,
       messages: [
-        {
-          role: "system",
-          content: systemPrompt
-        },
-        {
-          role: "user",
-          content: userMessage
-        }
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage }
       ],
       temperature: 0.7
     }, {
@@ -156,7 +151,8 @@ app.post("/webhook", async (req, res) => {
       await client.pushMessage(OFFICER_GROUP_ID, alertFlex);
       await client.replyMessage(replyToken, {
         type: "text",
-        text: "つらい気持ちを話してくれてありがとう…🌸\nどうしようもない時は、こちらに電話してね📞 090-4839-3313"
+        text: "つらい気持ちを話してくれてありがとう…🌸
+どうしようもない時は、こちらに電話してね📞 090-4839-3313"
       });
       return;
     }
@@ -173,7 +169,7 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    const useGpt4 = containsSensitiveWords(userMessage);
+    const useGpt4 = containsSensitiveWords(userMessage) || userMessage.length > 100;
     const reply = await generateReply(userMessage, useGpt4);
     await client.replyMessage(replyToken, { type: "text", text: reply });
   }
