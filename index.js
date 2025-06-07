@@ -190,37 +190,4 @@ app.post("/webhook", async (req, res) => {
               {
                 type: "button",
                 style: "primary",
-                color: "#00B900",
-                action: { type: "message", label: "返信する", text: `@${displayName} に返信する` }
-              }
-            ]
-          }
-        }
-      };
-      await client.pushMessage(OFFICER_GROUP_ID, alertFlex);
-      await client.replyMessage(replyToken, emergencyFlex);
-      return;
-    }
-
-    const special = checkSpecialReply(userMessage);
-    if (special) {
-      await client.replyMessage(replyToken, { type: "text", text: special });
-      return;
-    }
-
-    const negative = checkNegativeResponse(userMessage);
-    if (negative) {
-      await client.replyMessage(replyToken, { type: "text", text: negative });
-      return;
-    }
-
-    const useGpt4 = containsSensitiveWords(userMessage) || userMessage.length > 100;
-    const reply = await generateReply(userMessage, useGpt4);
-    await client.replyMessage(replyToken, { type: "text", text: reply });
-  }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 こころちゃんBot is running on port ${PORT}`);
-});
+                color: "#
