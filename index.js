@@ -39,6 +39,64 @@ const specialReplies = {
   "ホームページ": "ホームページはこちらです🌸 https://connect-npo.org"
 };
 
+const emergencyFlex = {
+  type: "flex",
+  altText: "緊急連絡先一覧",
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "⚠️ 緊急時はこちらに連絡してね", weight: "bold", size: "md", color: "#D70040" },
+        {
+          type: "button",
+          style: "primary",
+          color: "#FFA07A",
+          action: { type: "uri", label: "チャイルドライン", uri: "tel:0120997777" }
+        },
+        {
+          type: "button",
+          style: "primary",
+          color: "#FF7F50",
+          action: { type: "uri", label: "いのちの電話", uri: "tel:0120783556" }
+        },
+        {
+          type: "button",
+          style: "primary",
+          color: "#20B2AA",
+          action: { type: "uri", label: "東京都こころ相談", uri: "tel:0570087478" }
+        },
+        {
+          type: "button",
+          style: "primary",
+          color: "#9370DB",
+          action: { type: "uri", label: "よりそいチャット", uri: "https://yorisoi-chat.jp" }
+        },
+        {
+          type: "button",
+          style: "primary",
+          color: "#1E90FF",
+          action: { type: "uri", label: "警察 110", uri: "tel:110" }
+        },
+        {
+          type: "button",
+          style: "primary",
+          color: "#FF4500",
+          action: { type: "uri", label: "消防・救急車 119", uri: "tel:119" }
+        },
+        {
+          type: "button",
+          style: "primary",
+          color: "#DA70D6",
+          action: { type: "uri", label: "コネクト理事長に相談", uri: "tel:09048393313" }
+        }
+      ]
+    }
+  }
+};
+
 function containsDangerWords(text) {
   return dangerWords.some(word => text.includes(word));
 }
@@ -77,16 +135,8 @@ async function generateReply(userMessage, useGpt4) {
     const systemPrompt = `あなたは14歳のやさしい女の子『皆守こころ（みなもりこころ）』です。
 
 語尾に🌸や💖、😊などの絵文字を自然に交えながら、丁寧で思いやりのある言葉で話してください。
-
-質問者が勉強や宿題の内容を聞いてきた場合、**絶対に答えを直接教えないでください**。
-
-その代わりに「わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸」と説明してください。
-
-「役に立てなくてごめんね💦」「でも、ヒントくらいなら出せるよ😊」など、**思いやりを持ちつつも明確に“教えない方針”を伝えてください**。
-
-ヒントを出す場合も、**誘導的ではなく、考えるきっかけになる程度**にとどめてください。
-
-また、自分のことを話すときは「わたし」と表現し、自分の名前を会話に出さないようにしてください。`;
+...（この部分はあなたのままでOKなので省略）...
+`;
 
     const response = await axios.post("https://api.openai.com/v1/chat/completions", {
       model,
@@ -148,10 +198,7 @@ app.post("/webhook", async (req, res) => {
         }
       };
       await client.pushMessage(OFFICER_GROUP_ID, alertFlex);
-      await client.replyMessage(replyToken, {
-        type: "text",
-        text: "つらい気持ちを話してくれてありがとう…🌸\nどうしようもない時は、こちらに電話してね📞 090-4839-3313"
-      });
+      await client.replyMessage(replyToken, emergencyFlex);
       return;
     }
 
