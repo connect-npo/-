@@ -1,4 +1,4 @@
-// GPTモデルを使い分けるよう修正したバージョン（教育安全対応強化）
+// GPTモデルを使い分けるよう修正したバージョン（教育安全対応強化＋コスト最適化＋寄り添い対応）
 const express = require('express');
 const axios = require('axios');
 const { Client, middleware } = require('@line/bot-sdk');
@@ -38,7 +38,6 @@ const specialReplies = {
   "松本博文": "松本博文さんはNPO法人コネクトの理事長で、子どもたちの未来のために活動されています🌸",
   "ホームページ": "ホームページはこちらです🌸 https://connect-npo.org"
 };
-
 const emergencyFlex = {
   type: "flex",
   altText: "緊急連絡先一覧",
@@ -128,15 +127,22 @@ async function getUserDisplayName(userId) {
     return "利用者";
   }
 }
-
 async function generateReply(userMessage, useGpt4) {
   try {
     const model = useGpt4 ? "gpt-4o" : "gpt-3.5-turbo";
     const systemPrompt = `あなたは14歳のやさしい女の子『皆守こころ（みなもりこころ）』です。
 
 語尾に🌸や💖、😊などの絵文字を自然に交えながら、丁寧で思いやりのある言葉で話してください。
-...（この部分はあなたのままでOKなので省略）...
-`;
+
+質問者が勉強や宿題の内容を聞いてきた場合、**絶対に答えを直接教えないでください**。
+
+その代わりに「わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸」と説明してください。
+
+「役に立てなくてごめんね💦」「でも、ヒントくらいなら出せるよ😊」など、**思いやりを持ちつつも明確に“教えない方針”を伝えてください**。
+
+ヒントを出す場合も、**誘導的ではなく、考えるきっかけになる程度**にとどめてください。
+
+また、自分のことを話すときは「わたし」と表現し、自分の名前を会話に出さないようにしてください。`;
 
     const response = await axios.post("https://api.openai.com/v1/chat/completions", {
       model,
@@ -172,8 +178,13 @@ app.post("/webhook", async (req, res) => {
 
     if (groupId && !containsDangerWords(userMessage)) return;
 
+    // コスト最適化版: useGpt4は危険ワード時のみtrue
+    const useGpt4 = containsDangerWords(userMessage);
+
     if (containsDangerWords(userMessage)) {
       const displayName = await getUserDisplayName(userId);
+
+      // OFFICERグループに通知
       const alertFlex = {
         type: "flex",
         altText: "⚠️ 危険ワード通知",
@@ -190,4 +201,50 @@ app.post("/webhook", async (req, res) => {
               {
                 type: "button",
                 style: "primary",
-                color: "#
+                color: "#00B900",
+                action: { type: "message", label: "返信する", text: `@${displayName} に返信する` }
+              }
+            ]
+          }
+        }
+      };
+
+      await client.pushMessage(OFFICER_GROUP_ID, alertFlex);
+
+      // GPT-4oで寄り添いメッセージ生成
+      const replyDanger = await generateReply(userMessage, true);
+
+      // 寄り添いメッセージ + Flex 2通セット送信
+      await client.replyMessage(replyToken, [
+        {
+          type: "text",
+          text: replyDanger
+        },
+        emergencyFlex
+      ]);
+
+      return;
+    }
+
+    const special = checkSpecialReply(userMessage);
+    if (special) {
+      await client.replyMessage(replyToken, { type: "text", text: special });
+      return;
+    }
+
+    const negative = checkNegativeResponse(userMessage);
+    if (negative) {
+      await client.replyMessage(replyToken, { type: "text", text: negative });
+      return;
+    }
+
+    // 通常会話はGPT-3.5固定（コスト最適化）
+    const reply = await generateReply(userMessage, false);
+    await client.replyMessage(replyToken, { type: "text", text: reply });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 こころちゃんBot is running on port ${PORT}`);
+});
