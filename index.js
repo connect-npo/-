@@ -53,43 +53,43 @@ const emergencyFlex = {
           type: "button",
           style: "primary",
           color: "#FFA07A",
-          action: { type: "uri", label: "チャイルドライン", uri: "tel:0120997777" }
+          action: { type: "uri", label: "チャイルドライン (16時〜21時)", uri: "tel:0120997777" }
         },
         {
           type: "button",
           style: "primary",
           color: "#FF7F50",
-          action: { type: "uri", label: "いのちの電話", uri: "tel:0120783556" }
+          action: { type: "uri", label: "いのちの電話 (10時〜22時)", uri: "tel:0120783556" }
         },
         {
           type: "button",
           style: "primary",
           color: "#20B2AA",
-          action: { type: "uri", label: "東京都こころ相談", uri: "tel:0570087478" }
+          action: { type: "uri", label: "東京都こころ相談 (24時間)", uri: "tel:0570087478" }
         },
         {
           type: "button",
           style: "primary",
           color: "#9370DB",
-          action: { type: "uri", label: "よりそいチャット", uri: "https://yorisoi-chat.jp" }
+          action: { type: "uri", label: "よりそいチャット (8時〜22時半)", uri: "https://yorisoi-chat.jp" }
         },
         {
           type: "button",
           style: "primary",
           color: "#1E90FF",
-          action: { type: "uri", label: "警察 110", uri: "tel:110" }
+          action: { type: "uri", label: "警察 110 (24時間)", uri: "tel:110" }
         },
         {
           type: "button",
           style: "primary",
           color: "#FF4500",
-          action: { type: "uri", label: "消防・救急車 119", uri: "tel:119" }
+          action: { type: "uri", label: "消防・救急車 119 (24時間)", uri: "tel:119" }
         },
         {
           type: "button",
           style: "primary",
           color: "#DA70D6",
-          action: { type: "uri", label: "コネクト理事長に相談", uri: "tel:09048393313" }
+          action: { type: "uri", label: "コネクト理事長に相談 (つながらない場合あり)", uri: "tel:09048393313" }
         }
       ]
     }
