@@ -1,7 +1,6 @@
-// GPTモデルを使い分けるよう修正したバージョン（教育安全対応強化＋コスト最適化＋寄り添い対応）
 const express = require('express');
 const axios = require('axios');
-const { Client, middleware } = require('@line/bot-sdk');
+const { Client } = require('@line/bot-sdk');
 
 const app = express();
 app.use(express.json());
@@ -15,7 +14,6 @@ const client = new Client(config);
 
 const OPENAI_API_KEY = process.env.YOUR_OPENAI_API_KEY;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
-const PARENT_GROUP_ID = process.env.PARENT_GROUP_ID;
 
 const dangerWords = [
   "しにたい", "死にたい", "自殺", "消えたい", "学校に行けない",
@@ -33,10 +31,13 @@ const negativeResponses = {
 
 const specialReplies = {
   "君の名前は": "私の名前は皆守こころ（みなもりこころ）です。こころちゃんって呼ばれています💖",
-  "名前は？": "私はこころちゃんって呼ばれています🌸",
+  "名前は？": "私の名前は皆守こころ（みなもりこころ）です。こころちゃんって呼ばれています💖",
+  "お前の名前は": "私の名前は皆守こころ（みなもりこころ）です。こころちゃんって呼ばれています💖",
   "誰が作ったの": "コネクトの理事長さんが、みんなの幸せを願って私を作ってくれたんです🌸✨",
   "松本博文": "松本博文さんはNPO法人コネクトの理事長で、子どもたちの未来のために活動されています🌸",
-  "ホームページ": "ホームページはこちらです🌸 https://connect-npo.org"
+  "ホームページ": "ホームページはこちらです🌸 https://connect-npo.org",
+  "好きなアニメ": "わたしは『ヴァイオレット・エヴァーガーデン』が好きだよ🌸とっても感動するお話だよ💖",
+  "好きなアーティスト": "わたしは『ClariS』が好きだよ💖元気が出る音楽がたくさんあるんだ🌸"
 };
 
 const emergencyFlex = {
@@ -90,7 +91,7 @@ const emergencyFlex = {
           type: "button",
           style: "primary",
           color: "#DA70D6",
-          action: { type: "uri", label: "コネクト理事長に相談", uri: "tel:09048393313" }
+          action: { type: "uri", label: "コネクト理事長に相談（出られない場合もあります）", uri: "tel:09048393313" }
         }
       ]
     }
@@ -99,10 +100,6 @@ const emergencyFlex = {
 
 function containsDangerWords(text) {
   return dangerWords.some(word => text.includes(word));
-}
-
-function containsSensitiveWords(text) {
-  return sensitiveWords.some(word => text.includes(word));
 }
 
 function checkNegativeResponse(text) {
@@ -180,13 +177,11 @@ app.post("/webhook", async (req, res) => {
 
     if (groupId && !containsDangerWords(userMessage)) return;
 
-    // コスト最適化版: useGpt4は危険ワード時のみtrue
     const useGpt4 = containsDangerWords(userMessage);
 
     if (containsDangerWords(userMessage)) {
       const displayName = await getUserDisplayName(userId);
 
-      // OFFICERグループに通知
       const alertFlex = {
         type: "flex",
         altText: "⚠️ 危険ワード通知",
@@ -197,60 +192,4 @@ app.post("/webhook", async (req, res) => {
             layout: "vertical",
             spacing: "md",
             contents: [
-              { type: "text", text: "⚠️ 危険ワードを検出しました", weight: "bold", size: "md", color: "#D70040" },
-              { type: "text", text: `👤 利用者: ${displayName}`, size: "sm" },
-              { type: "text", text: `💬 内容: ${userMessage}`, wrap: true, size: "sm" },
-              {
-                type: "button",
-                style: "primary",
-                color: "#00B900",
-                action: { type: "message", label: "返信する", text: `@${displayName} に返信する` }
-              }
-            ]
-          }
-        }
-      };
-
-      await client.pushMessage(OFFICER_GROUP_ID, alertFlex);
-
-      // GPT-4oで寄り添いメッセージ生成
-      const replyDanger = await generateReply(userMessage, true);
-
-      // 寄り添いメッセージ + 説明文 + Flex 3通セット送信
-      await client.replyMessage(replyToken, [
-        {
-          type: "text",
-          text: "📞 コネクト理事長に電話がかかりますが、出られない場合があります。その際は折り返しのご連絡をお待ちください🌸"
-        },
-        {
-          type: "text",
-          text: replyDanger
-        },
-        emergencyFlex
-      ]);
-
-      return;
-    }
-
-    const special = checkSpecialReply(userMessage);
-    if (special) {
-      await client.replyMessage(replyToken, { type: "text", text: special });
-      return;
-    }
-
-    const negative = checkNegativeResponse(userMessage);
-    if (negative) {
-      await client.replyMessage(replyToken, { type: "text", text: negative });
-      return;
-    }
-
-    // 通常会話はGPT-3.5固定（コスト最適化）
-    const reply = await generateReply(userMessage, false);
-    await client.replyMessage(replyToken, { type: "text", text: reply });
-  }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 こころちゃんBot is running on port ${PORT}`);
-});
+              { type: "text", text: "⚠️ 危険ワードを検出しました", weight: "bold", size: "md",
