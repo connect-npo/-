@@ -38,6 +38,7 @@ const specialReplies = {
   "松本博文": "松本博文さんはNPO法人コネクトの理事長で、子どもたちの未来のために活動されています🌸",
   "ホームページ": "ホームページはこちらです🌸 https://connect-npo.org"
 };
+
 const emergencyFlex = {
   type: "flex",
   altText: "緊急連絡先一覧",
@@ -89,7 +90,7 @@ const emergencyFlex = {
           type: "button",
           style: "primary",
           color: "#DA70D6",
-          action: { type: "uri", label: "コネクト理事長に相談 (つながらない場合あり)", uri: "tel:09048393313" }
+          action: { type: "uri", label: "コネクト理事長に相談", uri: "tel:09048393313" }
         }
       ]
     }
@@ -127,6 +128,7 @@ async function getUserDisplayName(userId) {
     return "利用者";
   }
 }
+
 async function generateReply(userMessage, useGpt4) {
   try {
     const model = useGpt4 ? "gpt-4o" : "gpt-3.5-turbo";
@@ -214,8 +216,12 @@ app.post("/webhook", async (req, res) => {
       // GPT-4oで寄り添いメッセージ生成
       const replyDanger = await generateReply(userMessage, true);
 
-      // 寄り添いメッセージ + Flex 2通セット送信
+      // 寄り添いメッセージ + 説明文 + Flex 3通セット送信
       await client.replyMessage(replyToken, [
+        {
+          type: "text",
+          text: "📞 コネクト理事長に電話がかかりますが、出られない場合があります。その際は折り返しのご連絡をお待ちください🌸"
+        },
         {
           type: "text",
           text: replyDanger
