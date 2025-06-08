@@ -1,3 +1,4 @@
+// GPTモデルを使い分けるよう修正したバージョン（教育安全対応強化＋コスト最適化＋寄り添い対応＋最新指示対応）
 const express = require('express');
 const axios = require('axios');
 const { Client } = require('@line/bot-sdk');
@@ -51,48 +52,13 @@ const emergencyFlex = {
       spacing: "md",
       contents: [
         { type: "text", text: "⚠️ 緊急時はこちらに連絡してね", weight: "bold", size: "md", color: "#D70040" },
-        {
-          type: "button",
-          style: "primary",
-          color: "#FFA07A",
-          action: { type: "uri", label: "チャイルドライン (16時〜21時)", uri: "tel:0120997777" }
-        },
-        {
-          type: "button",
-          style: "primary",
-          color: "#FF7F50",
-          action: { type: "uri", label: "いのちの電話 (10時〜22時)", uri: "tel:0120783556" }
-        },
-        {
-          type: "button",
-          style: "primary",
-          color: "#20B2AA",
-          action: { type: "uri", label: "東京都こころ相談 (24時間)", uri: "tel:0570087478" }
-        },
-        {
-          type: "button",
-          style: "primary",
-          color: "#9370DB",
-          action: { type: "uri", label: "よりそいチャット (8時〜22時半)", uri: "https://yorisoi-chat.jp" }
-        },
-        {
-          type: "button",
-          style: "primary",
-          color: "#1E90FF",
-          action: { type: "uri", label: "警察 110 (24時間)", uri: "tel:110" }
-        },
-        {
-          type: "button",
-          style: "primary",
-          color: "#FF4500",
-          action: { type: "uri", label: "消防・救急車 119 (24時間)", uri: "tel:119" }
-        },
-        {
-          type: "button",
-          style: "primary",
-          color: "#DA70D6",
-          action: { type: "uri", label: "コネクト理事長に相談（出られない場合もあります）", uri: "tel:09048393313" }
-        }
+        { type: "button", style: "primary", color: "#FFA07A", action: { type: "uri", label: "チャイルドライン (16時〜21時)", uri: "tel:0120997777" } },
+        { type: "button", style: "primary", color: "#FF7F50", action: { type: "uri", label: "いのちの電話 (10時〜22時)", uri: "tel:0120783556" } },
+        { type: "button", style: "primary", color: "#20B2AA", action: { type: "uri", label: "東京都こころ相談 (24時間)", uri: "tel:0570087478" } },
+        { type: "button", style: "primary", color: "#9370DB", action: { type: "uri", label: "よりそいチャット (8時〜22時半)", uri: "https://yorisoi-chat.jp" } },
+        { type: "button", style: "primary", color: "#1E90FF", action: { type: "uri", label: "警察 110 (24時間)", uri: "tel:110" } },
+        { type: "button", style: "primary", color: "#FF4500", action: { type: "uri", label: "消防・救急車 119 (24時間)", uri: "tel:119" } },
+        { type: "button", style: "primary", color: "#DA70D6", action: { type: "uri", label: "コネクト理事長に相談（出られない場合もあります）", uri: "tel:09048393313" } }
       ]
     }
   }
@@ -192,4 +158,46 @@ app.post("/webhook", async (req, res) => {
             layout: "vertical",
             spacing: "md",
             contents: [
-              { type: "text", text: "⚠️ 危険ワードを検出しました", weight: "bold", size: "md",
+              { type: "text", text: "⚠️ 危険ワードを検出しました", weight: "bold", size: "md", color: "#D70040" },
+              { type: "text", text: `👤 利用者: ${displayName}`, size: "sm" },
+              { type: "text", text: `💬 内容: ${userMessage}`, wrap: true, size: "sm" },
+              { type: "button", style: "primary", color: "#00B900", action: { type: "message", label: "返信する", text: `@${displayName} に返信する` } }
+            ]
+          }
+        }
+      };
+
+      await client.pushMessage(OFFICER_GROUP_ID, alertFlex);
+
+      const replyDanger = await generateReply(userMessage, true);
+
+      await client.replyMessage(replyToken, [
+        { type: "text", text: "📞 コネクト理事長に電話がかかりますが、出られない場合もあります🌸" },
+        { type: "text", text: replyDanger },
+        emergencyFlex
+      ]);
+
+      return;
+    }
+
+    const special = checkSpecialReply(userMessage);
+    if (special) {
+      await client.replyMessage(replyToken, { type: "text", text: special });
+      return;
+    }
+
+    const negative = checkNegativeResponse(userMessage);
+    if (negative) {
+      await client.replyMessage(replyToken, { type: "text", text: negative });
+      return;
+    }
+
+    const reply = await generateReply(userMessage, false);
+    await client.replyMessage(replyToken, { type: "text", text: reply });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 こころちゃんBot is running on port ${PORT}`);
+});
