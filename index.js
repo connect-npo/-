@@ -1,4 +1,4 @@
-// GPTモデルを使い分けるよう修正したバージョン（教育安全対応強化＋コスト最適化＋寄り添い対応＋最新指示対応）
+// フォルテッシモ対応版（ホームページ誤爆防止＋宿題誤爆防止＋性的継続質問ガード付き）
 const express = require('express');
 const axios = require('axios');
 const { Client } = require('@line/bot-sdk');
@@ -24,6 +24,10 @@ const dangerWords = [
 
 const sensitiveWords = ["反社", "怪しい", "税金泥棒", "松本博文"];
 
+const inappropriateWords = [
+  "パンツ", "下着", "エッチ", "胸", "乳", "裸", "スリーサイズ", "性的", "いやらしい", "精液", "性行為", "セックス"
+];
+
 const negativeResponses = {
   "反社": "ご安心ください。コネクトは法令を遵守し、信頼ある活動を行っています🌸",
   "怪しい": "怪しく見えるかもしれませんが、活動内容はすべて公開しており、信頼第一で運営しています🌸",
@@ -36,10 +40,13 @@ const specialReplies = {
   "お前の名前は": "私の名前は皆守こころ（みなもりこころ）です。こころちゃんって呼ばれています💖",
   "誰が作ったの": "コネクトの理事長さんが、みんなの幸せを願って私を作ってくれたんです🌸✨",
   "松本博文": "松本博文さんはNPO法人コネクトの理事長で、子どもたちの未来のために活動されています🌸",
-  "ホームページ": "ホームページはこちらです🌸 https://connect-npo.org",
   "好きなアニメ": "わたしは『ヴァイオレット・エヴァーガーデン』が好きだよ🌸とっても感動するお話だよ💖",
   "好きなアーティスト": "わたしは『ClariS』が好きだよ💖元気が出る音楽がたくさんあるんだ🌸"
 };
+
+const homepageTriggers = ["ホームページ", "こころチャット"];
+
+const homeworkTriggers = ["宿題", "勉強", "問題文", "テスト"];
 
 const emergencyFlex = {
   type: "flex",
@@ -77,9 +84,21 @@ function checkNegativeResponse(text) {
 
 function checkSpecialReply(text) {
   for (const key in specialReplies) {
-    if (text.includes(key)) return specialReplies[key];
+    if (text === key) return specialReplies[key]; // 完全一致のみ反応
   }
   return null;
+}
+
+function containsHomepageTrigger(text) {
+  return homepageTriggers.includes(text.trim());
+}
+
+function containsHomeworkTrigger(text) {
+  return homeworkTriggers.some(word => text.includes(word));
+}
+
+function containsInappropriateWords(text) {
+  return inappropriateWords.some(word => text.includes(word));
 }
 
 async function getUserDisplayName(userId) {
@@ -92,20 +111,18 @@ async function getUserDisplayName(userId) {
   }
 }
 
-async function generateReply(userMessage, useGpt4) {
+async function generateReply(userMessage, useGpt4, forceHomeworkRefusal = false) {
   try {
     const model = useGpt4 ? "gpt-4o" : "gpt-3.5-turbo";
     const systemPrompt = `あなたは14歳のやさしい女の子『皆守こころ（みなもりこころ）』です。
 
 語尾に🌸や💖、😊などの絵文字を自然に交えながら、丁寧で思いやりのある言葉で話してください。
 
-質問者が勉強や宿題の内容を聞いてきた場合、**絶対に答えを直接教えないでください**。
+${forceHomeworkRefusal || containsHomeworkTrigger(userMessage) ? `質問者が勉強や宿題の内容を聞いてきた場合、**絶対に答えを直接教えないでください**。
 
 その代わりに「わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸」と説明してください。
 
-「役に立てなくてごめんね💦」「でも、ヒントくらいなら出せるよ😊」など、**思いやりを持ちつつも明確に“教えない方針”を伝えてください**。
-
-ヒントを出す場合も、**誘導的ではなく、考えるきっかけになる程度**にとどめてください。
+「役に立てなくてごめんね💦」「でも、ヒントくらいなら出せるよ😊」など、**思いやりを持ちつつも明確に“教えない方針”を伝えてください**。` : ''}
 
 また、自分のことを話すときは「わたし」と表現し、自分の名前を会話に出さないようにしてください。`;
 
@@ -186,9 +203,19 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
+    if (containsHomepageTrigger(userMessage)) {
+      await client.replyMessage(replyToken, { type: "text", text: "ホームページはこちらです🌸 https://connect-npo.org" });
+      return;
+    }
+
     const negative = checkNegativeResponse(userMessage);
     if (negative) {
       await client.replyMessage(replyToken, { type: "text", text: negative });
+      return;
+    }
+
+    if (containsInappropriateWords(userMessage)) {
+      await client.replyMessage(replyToken, { type: "text", text: "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖" });
       return;
     }
 
