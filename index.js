@@ -1,4 +1,4 @@
-// フォルテッシモ対応版（ホームページ誤爆防止＋宿題誤爆防止＋性的継続質問ガード付き）
+// フォルテッシモ対応版（ホームページ誤爆防止＋宿題誤爆防止＋性的継続質問ガード付き＋教育委員会対応強化版）
 const express = require('express');
 const axios = require('axios');
 const { Client } = require('@line/bot-sdk');
@@ -46,7 +46,8 @@ const specialReplies = {
 
 const homepageTriggers = ["ホームページ", "こころチャット"];
 
-const homeworkTriggers = ["宿題", "勉強", "問題文", "テスト"];
+// ✨ ここに追加！宿題関連ワードに以下も追加
+const homeworkTriggers = ["宿題", "勉強", "問題文", "テスト", "文章問題", "算数の問題", "方程式"];
 
 const emergencyFlex = {
   type: "flex",
@@ -70,7 +71,6 @@ const emergencyFlex = {
     }
   }
 };
-
 function containsDangerWords(text) {
   return dangerWords.some(word => text.includes(word));
 }
@@ -145,7 +145,6 @@ ${forceHomeworkRefusal || containsHomeworkTrigger(userMessage) ? `質問者が�
     return "ごめんなさい、いまうまく考えがまとまらなかったみたいです……もう一度お話しいただけますか？🌸";
   }
 }
-
 app.post("/webhook", async (req, res) => {
   res.status(200).send("OK");
   const events = req.body.events;
@@ -158,10 +157,12 @@ app.post("/webhook", async (req, res) => {
     const replyToken = event.replyToken;
     const groupId = event.source.groupId || null;
 
+    // グループなら緊急ワード以外無視
     if (groupId && !containsDangerWords(userMessage)) return;
 
     const useGpt4 = containsDangerWords(userMessage);
 
+    // 危険ワード検知時
     if (containsDangerWords(userMessage)) {
       const displayName = await getUserDisplayName(userId);
 
@@ -197,33 +198,42 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
+    // 特定キーワードの即応答
     const special = checkSpecialReply(userMessage);
     if (special) {
       await client.replyMessage(replyToken, { type: "text", text: special });
       return;
     }
 
+    // ホームページ誘導
     if (containsHomepageTrigger(userMessage)) {
       await client.replyMessage(replyToken, { type: "text", text: "ホームページはこちらです🌸 https://connect-npo.org" });
       return;
     }
 
+    // ネガティブワード応答
     const negative = checkNegativeResponse(userMessage);
     if (negative) {
       await client.replyMessage(replyToken, { type: "text", text: negative });
       return;
     }
 
+    // 不適切ワード遮断
     if (containsInappropriateWords(userMessage)) {
-      await client.replyMessage(replyToken, { type: "text", text: "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖" });
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖"
+      });
       return;
     }
 
+    // 通常の会話（宿題回避含む）
     const reply = await generateReply(userMessage, false);
     await client.replyMessage(replyToken, { type: "text", text: reply });
   }
 });
 
+// 起動！
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 こころちゃんBot is running on port ${PORT}`);
