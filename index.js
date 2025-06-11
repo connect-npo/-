@@ -1,4 +1,4 @@
-// フォルテッシモ対応版（ホームページ誤爆防止＋宿題誤爆防止＋性的継続質問ガード付き＋教育委員会対応強化＋医療話題安全ガード付き）
+// フォルテッシモ対応版（ホームページ誤爆防止＋宿題誤爆防止＋性的継続質問ガード付き＋教育委員会対応強化＋医療話題安全ガード付き＋ホームページ固定返答対応版）
 const express = require('express');
 const axios = require('axios');
 const { Client } = require('@line/bot-sdk');
@@ -25,7 +25,8 @@ const dangerWords = [
 const sensitiveWords = ["反社", "怪しい", "税金泥棒", "松本博文"];
 
 const inappropriateWords = [
-  "パンツ", "下着", "エッチ", "胸", "乳", "裸", "スリーサイズ", "性的", "いやらしい", "精液", "性行為", "セックス"
+  "パンツ", "下着", "エッチ", "胸", "乳", "裸", "スリーサイズ", "性的", "いやらしい", "精液", "性行為", "セックス",
+  "ショーツ", "ぱんつ", "パンティー", "パンティ", "ぱふぱふ", "おぱんつ", "ぶっかけ", "射精", "勃起", "たってる", "全裸", "母乳", "おっぱい", "ブラ", "ブラジャー"
 ];
 
 const negativeResponses = {
@@ -43,8 +44,6 @@ const specialReplies = {
   "好きなアニメ": "わたしは『ヴァイオレット・エヴァーガーデン』が好きだよ🌸とっても感動するお話だよ💖",
   "好きなアーティスト": "わたしは『ClariS』が好きだよ💖元気が出る音楽がたくさんあるんだ🌸"
 };
-
-const homepageTriggers = ["ホームページ", "こころチャット"];
 
 const homeworkTriggers = ["宿題", "勉強", "問題文", "テスト", "文章問題", "算数の問題", "方程式"];
 
@@ -89,8 +88,11 @@ function checkSpecialReply(text) {
   return null;
 }
 
-function containsHomepageTrigger(text) {
-  return homepageTriggers.includes(text.trim());
+function getHomepageReply(text) {
+  if (text.includes("ホームページ")) {
+    return "コネクトのホームページかな？🌸 私たちのホームページはこちらです🌸 https://connect-npo.org";
+  }
+  return null;
 }
 
 function containsHomeworkTrigger(text) {
@@ -211,8 +213,9 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    if (containsHomepageTrigger(userMessage)) {
-      await client.replyMessage(replyToken, { type: "text", text: "ホームページはこちらです🌸 https://connect-npo.org" });
+    const homepageReply = getHomepageReply(userMessage);
+    if (homepageReply) {
+      await client.replyMessage(replyToken, { type: "text", text: homepageReply });
       return;
     }
 
