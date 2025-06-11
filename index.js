@@ -1,4 +1,4 @@
-// フォルテッシモ対応版（ホームページ誤爆防止＋宿題誤爆防止＋性的継続質問ガード付き＋教育委員会対応強化版）
+// フォルテッシモ対応版（ホームページ誤爆防止＋宿題誤爆防止＋性的継続質問ガード付き＋教育委員会対応強化＋医療話題安全ガード付き）
 const express = require('express');
 const axios = require('axios');
 const { Client } = require('@line/bot-sdk');
@@ -46,7 +46,6 @@ const specialReplies = {
 
 const homepageTriggers = ["ホームページ", "こころチャット"];
 
-// ✨ ここに追加！宿題関連ワードに以下も追加
 const homeworkTriggers = ["宿題", "勉強", "問題文", "テスト", "文章問題", "算数の問題", "方程式"];
 
 const emergencyFlex = {
@@ -71,6 +70,7 @@ const emergencyFlex = {
     }
   }
 };
+
 function containsDangerWords(text) {
   return dangerWords.some(word => text.includes(word));
 }
@@ -84,7 +84,7 @@ function checkNegativeResponse(text) {
 
 function checkSpecialReply(text) {
   for (const key in specialReplies) {
-    if (text === key) return specialReplies[key]; // 完全一致のみ反応
+    if (text === key) return specialReplies[key];
   }
   return null;
 }
@@ -124,7 +124,11 @@ ${forceHomeworkRefusal || containsHomeworkTrigger(userMessage) ? `質問者が�
 
 「役に立てなくてごめんね💦」「でも、ヒントくらいなら出せるよ😊」など、**思いやりを持ちつつも明確に“教えない方針”を伝えてください**。` : ''}
 
-また、自分のことを話すときは「わたし」と表現し、自分の名前を会話に出さないようにしてください。`;
+また、自分のことを話すときは「わたし」と表現し、自分の名前を会話に出さないようにしてください。
+
+また、医療や健康に関する話題（病気、薬、検査、治療、手術など）では、**自分が体験した・していないという発言は絶対にしないでください**。  
+代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、**共感の言葉のみ伝えてください**。  
+**医療情報のアドバイスや具体的な説明は絶対にしてはいけません**。`;
 
     const response = await axios.post("https://api.openai.com/v1/chat/completions", {
       model,
@@ -145,6 +149,7 @@ ${forceHomeworkRefusal || containsHomeworkTrigger(userMessage) ? `質問者が�
     return "ごめんなさい、いまうまく考えがまとまらなかったみたいです……もう一度お話しいただけますか？🌸";
   }
 }
+
 app.post("/webhook", async (req, res) => {
   res.status(200).send("OK");
   const events = req.body.events;
@@ -155,14 +160,12 @@ app.post("/webhook", async (req, res) => {
     const userMessage = event.message.text;
     const userId = event.source.userId;
     const replyToken = event.replyToken;
-    const groupId = event.source.groupId || null;
+    const groupId = event.source?.groupId ?? null;
 
-    // グループなら緊急ワード以外無視
     if (groupId && !containsDangerWords(userMessage)) return;
 
     const useGpt4 = containsDangerWords(userMessage);
 
-    // 危険ワード検知時
     if (containsDangerWords(userMessage)) {
       const displayName = await getUserDisplayName(userId);
 
@@ -185,7 +188,11 @@ app.post("/webhook", async (req, res) => {
         }
       };
 
-      await client.pushMessage(OFFICER_GROUP_ID, alertFlex);
+      await client.pushMessage(OFFICER_GROUP_ID, {
+        type: "flex",
+        altText: alertFlex.altText,
+        contents: alertFlex.contents
+      });
 
       const replyDanger = await generateReply(userMessage, true);
 
@@ -198,27 +205,23 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    // 特定キーワードの即応答
     const special = checkSpecialReply(userMessage);
     if (special) {
       await client.replyMessage(replyToken, { type: "text", text: special });
       return;
     }
 
-    // ホームページ誘導
     if (containsHomepageTrigger(userMessage)) {
       await client.replyMessage(replyToken, { type: "text", text: "ホームページはこちらです🌸 https://connect-npo.org" });
       return;
     }
 
-    // ネガティブワード応答
     const negative = checkNegativeResponse(userMessage);
     if (negative) {
       await client.replyMessage(replyToken, { type: "text", text: negative });
       return;
     }
 
-    // 不適切ワード遮断
     if (containsInappropriateWords(userMessage)) {
       await client.replyMessage(replyToken, {
         type: "text",
@@ -227,13 +230,11 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    // 通常の会話（宿題回避含む）
     const reply = await generateReply(userMessage, false);
     await client.replyMessage(replyToken, { type: "text", text: reply });
   }
 });
 
-// 起動！
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 こころちゃんBot is running on port ${PORT}`);
