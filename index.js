@@ -98,6 +98,10 @@ function containsDangerWords(text) {
   return dangerWords.some(word => text.includes(word));
 }
 
+function isBotAdmin(userId) {
+  return BOT_ADMIN_IDS.includes(userId);
+}
+
 function containsScamWords(text) {
   return scamWords.some(word => text.includes(word));
 }
@@ -191,6 +195,16 @@ app.post("/webhook", async (req, res) => {
     console.log("★ 受信 userId:", userId);
     const replyToken = event.replyToken;
     const groupId = event.source?.groupId ?? null;
+
+    const isAdmin = isBotAdmin(userId);
+
+if (isAdmin && userMessage === "管理パネル") {
+  await client.replyMessage(replyToken, {
+    type: "text",
+    text: "🌸理事長専用メニューです✨\n（ここに将来、理事長用の特別ボタンや機能が追加できます）"
+  });
+  return;
+}
 
     // グループでは危険/詐欺以外は反応しない
     if (groupId && !containsDangerWords(userMessage) && !containsScamWords(userMessage)) return;
