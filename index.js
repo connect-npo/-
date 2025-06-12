@@ -1,4 +1,4 @@
-// フォルテッシモ対応版（ホームページ誤爆防止＋宿題誤爆防止＋性的継続質問ガード付き＋教育委員会対応強化＋医療話題安全ガード付き＋ホームページ固定返答対応版）
+// フォルテッシモ完全版（詐欺対応 + 危険 + 誤爆防止 + 教育委員会OK + 理事長ボタン修正版）
 const express = require('express');
 const axios = require('axios');
 const { Client } = require('@line/bot-sdk');
@@ -15,11 +15,17 @@ const client = new Client(config);
 
 const OPENAI_API_KEY = process.env.YOUR_OPENAI_API_KEY;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
+const BOT_ADMIN_IDS = []; // ← ここに理事長 userId 入れてOK！複数なら ["xxxx", "yyyy"]
 
 const dangerWords = [
   "しにたい", "死にたい", "自殺", "消えたい", "学校に行けない",
   "学校に行きたくない", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
   "いじめ", "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり"
+];
+
+const scamWords = [
+  "アマゾン", "amazon", "架空請求", "詐欺", "振込", "還付金", "カード利用確認", "利用停止",
+  "未納", "請求書", "コンビニ", "電子マネー", "支払い番号", "支払期限"
 ];
 
 const sensitiveWords = ["反社", "怪しい", "税金泥棒", "松本博文"];
@@ -64,7 +70,25 @@ const emergencyFlex = {
         { type: "button", style: "primary", color: "#9370DB", action: { type: "uri", label: "よりそいチャット (8時〜22時半)", uri: "https://yorisoi-chat.jp" } },
         { type: "button", style: "primary", color: "#1E90FF", action: { type: "uri", label: "警察 110 (24時間)", uri: "tel:110" } },
         { type: "button", style: "primary", color: "#FF4500", action: { type: "uri", label: "消防・救急車 119 (24時間)", uri: "tel:119" } },
-        { type: "button", style: "primary", color: "#DA70D6", action: { type: "uri", label: "コネクト理事長に相談（出られない場合もあります）", uri: "tel:09048393313" } }
+        { type: "button", style: "primary", color: "#DA70D6", action: { type: "uri", label: "理事長に電話（出られない場合あり）", uri: "tel:09048393313" } }
+      ]
+    }
+  }
+};
+
+const scamFlex = {
+  type: "flex",
+  altText: "⚠️ 詐欺の可能性があります",
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "⚠️ 詐欺の可能性がある内容です", weight: "bold", size: "md", color: "#D70040" },
+        { type: "button", style: "primary", color: "#1E90FF", action: { type: "uri", label: "警察 110 (24時間)", uri: "tel:110" } },
+        { type: "button", style: "primary", color: "#DA70D6", action: { type: "uri", label: "理事長に電話（出られない場合あり）", uri: "tel:09048393313" } }
       ]
     }
   }
@@ -72,6 +96,10 @@ const emergencyFlex = {
 
 function containsDangerWords(text) {
   return dangerWords.some(word => text.includes(word));
+}
+
+function containsScamWords(text) {
+  return scamWords.some(word => text.includes(word));
 }
 
 function checkNegativeResponse(text) {
@@ -112,7 +140,6 @@ async function getUserDisplayName(userId) {
     return "利用者";
   }
 }
-
 async function generateReply(userMessage, useGpt4, forceHomeworkRefusal = false) {
   try {
     const model = useGpt4 ? "gpt-4o" : "gpt-3.5-turbo";
@@ -164,10 +191,47 @@ app.post("/webhook", async (req, res) => {
     const replyToken = event.replyToken;
     const groupId = event.source?.groupId ?? null;
 
-    if (groupId && !containsDangerWords(userMessage)) return;
+    // グループでは危険/詐欺以外は反応しない
+    if (groupId && !containsDangerWords(userMessage) && !containsScamWords(userMessage)) return;
 
-    const useGpt4 = containsDangerWords(userMessage);
+    // 詐欺優先チェック
+    if (containsScamWords(userMessage)) {
+      const displayName = await getUserDisplayName(userId);
 
+      const scamAlertFlex = {
+        type: "flex",
+        altText: "⚠️ 詐欺ワード通知",
+        contents: {
+          type: "bubble",
+          body: {
+            type: "box",
+            layout: "vertical",
+            spacing: "md",
+            contents: [
+              { type: "text", text: "⚠️ 詐欺ワードを検出しました", weight: "bold", size: "md", color: "#D70040" },
+              { type: "text", text: `👤 利用者: ${displayName}`, size: "sm" },
+              { type: "text", text: `💬 内容: ${userMessage}`, wrap: true, size: "sm" },
+              { type: "button", style: "primary", color: "#00B900", action: { type: "message", label: "返信する", text: `@${displayName} に返信する` } }
+            ]
+          }
+        }
+      };
+
+      await client.pushMessage(OFFICER_GROUP_ID, {
+        type: "flex",
+        altText: scamAlertFlex.altText,
+        contents: scamAlertFlex.contents
+      });
+
+      await client.replyMessage(replyToken, [
+        { type: "text", text: "これは詐欺の可能性がある内容だから、理事に報告したよ🌸 不審な相手には絶対に返信しないでね💖" },
+        scamFlex
+      ]);
+
+      return;
+    }
+
+    // 危険ワードチェック
     if (containsDangerWords(userMessage)) {
       const displayName = await getUserDisplayName(userId);
 
@@ -196,17 +260,15 @@ app.post("/webhook", async (req, res) => {
         contents: alertFlex.contents
       });
 
-      const replyDanger = await generateReply(userMessage, true);
-
       await client.replyMessage(replyToken, [
-        { type: "text", text: "📞 コネクト理事長に電話がかかりますが、出られない場合もあります🌸" },
-        { type: "text", text: replyDanger },
+        { type: "text", text: "これは重要な内容だから理事の人に確認してもらっているよ🌸 もう少し待っててね💖" },
         emergencyFlex
       ]);
 
       return;
     }
 
+    // ここから通常処理
     const special = checkSpecialReply(userMessage);
     if (special) {
       await client.replyMessage(replyToken, { type: "text", text: special });
