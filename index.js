@@ -196,124 +196,168 @@ app.post("/webhook", async (req, res) => {
     const replyToken = event.replyToken;
     const groupId = event.source?.groupId ?? null;
 
-    const isAdmin = isBotAdmin(userId);
+const isAdmin = isBotAdmin(userId);
 
+// 管理パネル → ボタンメニュー
 if (isAdmin && userMessage === "管理パネル") {
+  const adminPanelFlex = {
+    type: "flex",
+    altText: "🌸理事長専用メニュー",
+    contents: {
+      type: "bubble",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          { type: "text", text: "🌸理事長専用メニュー✨", weight: "bold", size: "lg", color: "#D70040" },
+          { type: "button", style: "primary", color: "#1E90FF", action: { type: "message", label: "利用者数確認", text: "利用者数確認" } },
+          { type: "button", style: "primary", color: "#32CD32", action: { type: "message", label: "サーバー状況確認", text: "サーバー状況確認" } },
+          { type: "button", style: "primary", color: "#FFA500", action: { type: "message", label: "こころちゃん緊急停止", text: "こころちゃん緊急停止" } }
+        ]
+      }
+    }
+  };
+
   await client.replyMessage(replyToken, {
-    type: "text",
-    text: "🌸理事長専用メニューです✨\n（ここに将来、理事長用の特別ボタンや機能が追加できます）"
+    type: "flex",
+    altText: adminPanelFlex.altText,
+    contents: adminPanelFlex.contents
   });
   return;
 }
 
-    // グループでは危険/詐欺以外は反応しない
-    if (groupId && !containsDangerWords(userMessage) && !containsScamWords(userMessage)) return;
+// 管理パネル → 各ボタン押したとき
+if (isAdmin && userMessage === "利用者数確認") {
+  await client.replyMessage(replyToken, {
+    type: "text",
+    text: "現在の利用者数は xxx 名です🌸（※ここは実際はDBなどから取得できるように今後作成）"
+  });
+  return;
+}
 
-    // 詐欺優先チェック
-    if (containsScamWords(userMessage)) {
-      const displayName = await getUserDisplayName(userId);
+if (isAdmin && userMessage === "サーバー状況確認") {
+  await client.replyMessage(replyToken, {
+    type: "text",
+    text: "サーバーは正常に稼働中です🌸"
+  });
+  return;
+}
 
-      const scamAlertFlex = {
-        type: "flex",
-        altText: "⚠️ 詐欺ワード通知",
-        contents: {
-          type: "bubble",
-          body: {
-            type: "box",
-            layout: "vertical",
-            spacing: "md",
-            contents: [
-              { type: "text", text: "⚠️ 詐欺ワードを検出しました", weight: "bold", size: "md", color: "#D70040" },
-              { type: "text", text: `👤 利用者: ${displayName}`, size: "sm" },
-              { type: "text", text: `💬 内容: ${userMessage}`, wrap: true, size: "sm" },
-              { type: "button", style: "primary", color: "#00B900", action: { type: "message", label: "返信する", text: `@${displayName} に返信する` } }
-            ]
-          }
-        }
-      };
+if (isAdmin && userMessage === "こころちゃん緊急停止") {
+  await client.replyMessage(replyToken, {
+    type: "text",
+    text: "緊急停止は未実装です🌸（今後実装予定）"
+  });
+  return;
+}
 
-      await client.pushMessage(OFFICER_GROUP_ID, {
-        type: "flex",
-        altText: scamAlertFlex.altText,
-        contents: scamAlertFlex.contents
-      });
+// グループでは危険/詐欺以外は反応しない
+if (groupId && !containsDangerWords(userMessage) && !containsScamWords(userMessage)) return;
 
-      await client.replyMessage(replyToken, [
-        { type: "text", text: "これは詐欺の可能性がある内容だから、理事に報告したよ🌸 不審な相手には絶対に返信しないでね💖" },
-        scamFlex
-      ]);
+// 詐欺優先チェック
+if (containsScamWords(userMessage)) {
+  const displayName = await getUserDisplayName(userId);
 
-      return;
+  const scamAlertFlex = {
+    type: "flex",
+    altText: "⚠️ 詐欺ワード通知",
+    contents: {
+      type: "bubble",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          { type: "text", text: "⚠️ 詐欺ワードを検出しました", weight: "bold", size: "md", color: "#D70040" },
+          { type: "text", text: `👤 利用者: ${displayName}`, size: "sm" },
+          { type: "text", text: `💬 内容: ${userMessage}`, wrap: true, size: "sm" },
+          { type: "button", style: "primary", color: "#00B900", action: { type: "message", label: "返信する", text: `@${displayName} に返信する` } }
+        ]
+      }
     }
+  };
 
-    // 危険ワードチェック
-    if (containsDangerWords(userMessage)) {
-      const displayName = await getUserDisplayName(userId);
+  await client.pushMessage(OFFICER_GROUP_ID, {
+    type: "flex",
+    altText: scamAlertFlex.altText,
+    contents: scamAlertFlex.contents
+  });
 
-      const alertFlex = {
-        type: "flex",
-        altText: "⚠️ 危険ワード通知",
-        contents: {
-          type: "bubble",
-          body: {
-            type: "box",
-            layout: "vertical",
-            spacing: "md",
-            contents: [
-              { type: "text", text: "⚠️ 危険ワードを検出しました", weight: "bold", size: "md", color: "#D70040" },
-              { type: "text", text: `👤 利用者: ${displayName}`, size: "sm" },
-              { type: "text", text: `💬 内容: ${userMessage}`, wrap: true, size: "sm" },
-              { type: "button", style: "primary", color: "#00B900", action: { type: "message", label: "返信する", text: `@${displayName} に返信する` } }
-            ]
-          }
-        }
-      };
+  await client.replyMessage(replyToken, [
+    { type: "text", text: "これは詐欺の可能性がある内容だから、理事に報告したよ🌸 不審な相手には絶対に返信しないでね💖" },
+    scamFlex
+  ]);
 
-      await client.pushMessage(OFFICER_GROUP_ID, {
-        type: "flex",
-        altText: alertFlex.altText,
-        contents: alertFlex.contents
-      });
+  return;
+}
 
-      await client.replyMessage(replyToken, [
-        { type: "text", text: "これは重要な内容だから理事の人に確認してもらっているよ🌸 もう少し待っててね💖" },
-        emergencyFlex
-      ]);
+// 危険ワードチェック
+if (containsDangerWords(userMessage)) {
+  const displayName = await getUserDisplayName(userId);
 
-      return;
+  const alertFlex = {
+    type: "flex",
+    altText: "⚠️ 危険ワード通知",
+    contents: {
+      type: "bubble",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          { type: "text", text: "⚠️ 危険ワードを検出しました", weight: "bold", size: "md", color: "#D70040" },
+          { type: "text", text: `👤 利用者: ${displayName}`, size: "sm" },
+          { type: "text", text: `💬 内容: ${userMessage}`, wrap: true, size: "sm" },
+          { type: "button", style: "primary", color: "#00B900", action: { type: "message", label: "返信する", text: `@${displayName} に返信する` } }
+        ]
+      }
     }
+  };
 
-    // ここから通常処理
-    const special = checkSpecialReply(userMessage);
-    if (special) {
-      await client.replyMessage(replyToken, { type: "text", text: special });
-      return;
-    }
+  await client.pushMessage(OFFICER_GROUP_ID, {
+    type: "flex",
+    altText: alertFlex.altText,
+    contents: alertFlex.contents
+  });
 
-    const homepageReply = getHomepageReply(userMessage);
-    if (homepageReply) {
-      await client.replyMessage(replyToken, { type: "text", text: homepageReply });
-      return;
-    }
+  await client.replyMessage(replyToken, [
+    { type: "text", text: "これは重要な内容だから理事の人に確認してもらっているよ🌸 もう少し待っててね💖" },
+    emergencyFlex
+  ]);
 
-    const negative = checkNegativeResponse(userMessage);
-    if (negative) {
-      await client.replyMessage(replyToken, { type: "text", text: negative });
-      return;
-    }
+  return;
+}
 
-    if (containsInappropriateWords(userMessage)) {
-      await client.replyMessage(replyToken, {
-        type: "text",
-        text: "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖"
-      });
-      return;
-    }
+// ここから通常処理
+const special = checkSpecialReply(userMessage);
+if (special) {
+  await client.replyMessage(replyToken, { type: "text", text: special });
+  return;
+}
 
-    const reply = await generateReply(userMessage, false);
-    await client.replyMessage(replyToken, { type: "text", text: reply });
-  }
-});
+const homepageReply = getHomepageReply(userMessage);
+if (homepageReply) {
+  await client.replyMessage(replyToken, { type: "text", text: homepageReply });
+  return;
+}
+
+const negative = checkNegativeResponse(userMessage);
+if (negative) {
+  await client.replyMessage(replyToken, { type: "text", text: negative });
+  return;
+}
+
+if (containsInappropriateWords(userMessage)) {
+  await client.replyMessage(replyToken, {
+    type: "text",
+    text: "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖"
+  });
+  return;
+}
+
+const reply = await generateReply(userMessage, false);
+await client.replyMessage(replyToken, { type: "text", text: reply });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
