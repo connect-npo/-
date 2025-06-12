@@ -188,6 +188,7 @@ app.post("/webhook", async (req, res) => {
 
     const userMessage = event.message.text;
     const userId = event.source.userId;
+    console.log("★ 受信 userId:", userId);
     const replyToken = event.replyToken;
     const groupId = event.source?.groupId ?? null;
 
