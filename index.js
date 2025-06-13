@@ -497,7 +497,7 @@ app.post("/webhook", async (req, res) => {
 
     const reply = await generateReply(userMessage);
     await client.replyMessage(replyToken, { type: "text", text: reply });
-});
+};
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
