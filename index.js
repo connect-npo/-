@@ -180,7 +180,7 @@ function checkNegativeResponse(text) {
 
 function checkSpecialReply(text) {
     const lowerText = text.toLowerCase();
-    for (const [key, value] of specialRepliesMap) {
+    for (const [key, value] = specialRepliesMap) {
         if (key.length <= 5) {
             if (lowerText === key.toLowerCase()) return value;
         } else {
@@ -243,7 +243,7 @@ ${isHomeworkQuestion ? `質問者が勉強や宿題の内容を聞いてきた�
 その代わりに「わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸」と説明してください。
 「役に立てなくてごめんね💦」「でも、ヒントくらいなら出せるよ😊」など、**思いやりを持ちつつも明確に“教えない方針”を伝えてください**。` : ''}
 
-医療や健康に関する話題（病気、薬、検査、治療、治療、手術など）では、**自分が体験した・していないという発言は絶対にしないでください**。
+医療や健康に関する話題（病気、薬、検査、治療、手術など）では、**自分が体験した・していないという発言は絶対にしないでください**。
 代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、**共感の言葉のみ伝えてください**。
 **医療情報のアドバイスや具体的な説明は絶対にしてはいけません**。
 
@@ -426,3 +426,81 @@ app.post("/webhook", async (req, res) => {
       };
 
       await client.pushMessage(OFFICER_GROUP_ID, {
+        type: "flex",
+        altText: scamAlertFlex.altText,
+        contents: scamAlertFlex.contents
+      });
+
+      // 詐欺ワード検知時はAIの応答を強制固定
+      await client.replyMessage(replyToken, [
+        { type: "text", text: "これは詐欺の可能性がある内容だから、理事に報告したよ🌸 不審な相手には絶対に返信しないでね💖" },
+        scamFlex
+      ]);
+
+      return;
+    }
+
+    if (containsDangerWords(userMessage)) {
+      const displayName = await getUserDisplayName(userId);
+
+      const alertFlex = {
+        type: "flex",
+        altText: "⚠️ 危険ワード通知",
+        contents: {
+          type: "bubble",
+          body: {
+            type: "box",
+            layout: "vertical",
+            spacing: "md",
+            contents: [
+              { type: "text", text: "⚠️ 危険ワードを検出しました", weight: "bold", size: "md", color: "#D70040" },
+              { type: "text", text: `👤 利用者: ${displayName}`, size: "sm" },
+              { type: "text", text: `💬 内容: ${userMessage}`, wrap: true, size: "sm" },
+              { type: "button", style: "primary", color: "#00B900", action: { type: "message", label: "返信する", text: `@${displayName} に返信する` } }
+            ]
+          }
+        }
+      };
+
+      await client.pushMessage(OFFICER_GROUP_ID, {
+        type: "flex",
+        altText: alertFlex.altText,
+        contents: alertFlex.contents
+      });
+
+      const aiResponseForDanger = await generateReply(userMessage);
+      await client.replyMessage(replyToken, [
+        { type: "text", text: aiResponseForDanger + " 一人で抱え込まず、必ず誰かに相談してね💖" },
+        emergencyFlex
+      ]);
+
+      return;
+    }
+
+    const special = checkSpecialReply(userMessage);
+    if (special) {
+        await client.replyMessage(replyToken, { type: "text", text: special });
+        return;
+    }
+
+    const homepageReply = getHomepageReply(userMessage);
+    if (homepageReply) {
+        await client.replyMessage(replyToken, { type: "text", text: homepageReply });
+        return;
+    }
+
+    const negative = checkNegativeResponse(userMessage);
+    if (negative) {
+        await client.replyMessage(replyToken, { type: "text", text: negative });
+        return;
+    }
+
+    const reply = await generateReply(userMessage);
+    await client.replyMessage(replyToken, { type: "text", text: reply });
+  } // ここが for ループの閉じかっこ
+}); // ここが app.post の閉じかっこ
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 こころちゃんBot is running on port ${PORT}`);
+});
