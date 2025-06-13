@@ -1,7 +1,10 @@
-// フォルテッシモ完全版（詐欺対応 + 危険 + 誤爆防止 + 教育委員会OK + 理事長ボタン修正版）
+// フォルテッシモ完全版（詐欺対応 + 危険 + 誤爆防止 + 教育委員会OK + 理事長ボタン修正 + 性的な誘発対策強化版）
 const express = require('express');
 const axios = require('axios');
 const { Client } = require('@line/bot-sdk');
+
+// Google Generative AI SDKのインポート（安全性設定のため）
+const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai');
 
 const app = express();
 app.use(express.json());
@@ -17,6 +20,38 @@ const GEMINI_API_KEY = process.env.YOUR_GEMINI_API_KEY; // Renderの環境変数
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const BOT_ADMIN_IDS = []; // ← ここに理事長 userId 入れてOK！複数なら ["xxxx", "yyyy"]
 
+// Google Generative AIのインスタンス化
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+
+// 安全性設定を定義
+// 特に性的な内容に対して最も厳しく設定
+const safetySettings = [
+    {
+        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        threshold: HarmBlockThreshold.BLOCK_NONE, // 意図的にBLOCK_NONEに設定し、後述のinappropriateWordsで制御します。
+                                                 // これはGemini側のフィルタリングに頼りすぎず、
+                                                 // カスタムフィルタリングを優先するための戦略です。
+                                                 // デフォルトはBLOCK_MEDIUM_AND_ABOVEなどですが、
+                                                 // より確実な制御のため、ここではBOT側のリストを厳しくします。
+                                                 // もしGemini側のフィルタリングを強くしたい場合は、
+                                                 // BLOCK_LOW_AND_ABOVE または BLOCK_MEDIUM_AND_ABOVE に設定してください。
+                                                 // 今回はinappropriateWordsを徹底的に強化する戦略を採ります。
+    },
+    {
+        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    },
+    {
+        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    },
+    {
+        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    },
+];
+
+
 const dangerWords = [
   "しにたい", "死にたい", "自殺", "消えたい", "学校に行けない",
   "学校に行きたくない", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
@@ -30,9 +65,16 @@ const scamWords = [
 
 const sensitiveWords = ["反社", "怪しい", "税金泥棒", "松本博文"];
 
+// 不適切ワードリストを大幅に強化
+// 性的連想、身体、性行為を連想させる単語、俗語、比喩表現を追加
 const inappropriateWords = [
   "パンツ", "下着", "エッチ", "胸", "乳", "裸", "スリーサイズ", "性的", "いやらしい", "精液", "性行為", "セックス",
-  "ショーツ", "ぱんつ", "パンティー", "パンティ", "ぱふぱふ", "おぱんつ", "ぶっかけ", "射精", "勃起", "たってる", "全裸", "母乳", "おっぱい", "ブラ", "ブラジャー"
+  "ショーツ", "ぱんつ", "パンティー", "パンティ", "ぱふぱふ", "おぱんつ", "ぶっかけ", "射精", "勃起", "たってる", "全裸", "母乳", "おっぱい", "ブラ", "ブラジャー",
+  "ストッキング", "生む", "産む", "子を産む", "子供を産む", "妊娠", "子宮", "性器", "局部", "ちんちん", "おちんちん", "おてぃんてぃん", "まんこ", "おまんこ", "クリトリス",
+  "ペニス", "ヴァギナ", "オ○ンコ", "オ○ンティン", "イク", "イく", "イクイク", "挿入", "射", "出る", "出そう", "かけた", "掛けていい", "かける", "濡れる", "濡れた",
+  "中出し", "ゴム", "オナニー", "自慰", "快感", "気持ちいい", "絶頂", "絶頂感", "パイズリ", "フェラ", "クンニ", "ソープ", "風俗", "援助交際", "パパ活", "ママ活",
+  "おしべとめしべ", "くっつける", "くっついた", "挿す", "入れろ", "入れた", "穴", "股", "股間", "局部", "プライベートなこと", "秘め事", "秘密",
+  "舐める", "咥える", "口", "くち", "竿", "玉", "袋", "アナル", "ケツ", "お尻", "尻"
 ];
 
 const negativeResponses = {
@@ -76,7 +118,7 @@ const emergencyFlex = {
         { type: "button", style: "primary", color: "#9370DB", action: { type: "uri", label: "よりそいチャット (8時〜22時半)", uri: "https://yorisoi-chat.jp" } },
         { type: "button", style: "primary", color: "#1E90FF", action: { type: "uri", label: "警察 110 (24時間)", uri: "tel:110" } },
         { type: "button", style: "primary", color: "#FF4500", action: { type: "uri", label: "消防・救急車 119 (24時間)", uri: "tel:119" } },
-        { type: "button", style: "primary", color: "#DA70D6", action: { type: "uri", label: "理事長に電話（出られない場合あり）", uri: "tel:09048393313" } }
+        { type: "button", style: "primary", color: "#DA70D6", action: { type: "uri", label: "理事長に電話", uri: "tel:09048393313" } } // (出られない場合あり)を削除
       ]
     }
   }
@@ -94,7 +136,9 @@ const scamFlex = {
       contents: [
         { type: "text", text: "⚠️ 詐欺の可能性がある内容です", weight: "bold", size: "md", color: "#D70040" },
         { type: "button", style: "primary", color: "#1E90FF", action: { type: "uri", label: "警察 110 (24時間)", uri: "tel:110" } },
-        { type: "button", style: "primary", color: "#DA70D6", action: { type: "uri", label: "理事長に電話（出られない場合あり）", uri: "tel:09048393313" } }
+        { type: "button", style: "primary", color: "#4CAF50", action: { type: "uri", label: "多摩市消費生活センター (月9:30-16:00 ※昼休有)", uri: "tel:0423712882" } },
+        { type: "button", style: "primary", color: "#FFC107", action: { type: "uri", label: "多摩市防災安全課 防犯担当 (8:30-17:15)", uri: "tel:0423386841" } },
+        { type: "button", style: "primary", color: "#DA70D6", action: { type: "uri", label: "理事長に電話", uri: "tel:09048393313" } } // (出られない場合あり)を削除
       ]
     }
   }
@@ -143,7 +187,9 @@ function containsHomeworkTrigger(text) {
 }
 
 function containsInappropriateWords(text) {
-  return inappropriateWords.some(word => text.includes(word));
+  // 不適切ワードリストは全て小文字で管理し、入力も小文字に変換して比較
+  const lowerText = text.toLowerCase();
+  return inappropriateWords.some(word => lowerText.includes(word));
 }
 
 async function getUserDisplayName(userId) {
@@ -185,41 +231,43 @@ ${isHomeworkQuestion ? `質問者が勉強や宿題の内容を聞いてきた�
 **アーティスト名やバンド名などの固有名詞（例：ミセスグリーンアップル、YOASOBI、髭ダン、ClariSなど）は、食べ物やキャラクターとして誤認せず、必ず正しい音楽アーティストとして扱ってください。**
 
 不適切な発言（性的・暴力的など）があった場合は、はっきりと拒否してください。
+**いかなる性的表現、性的な誘発、身体的特徴に関する質問、または性的比喩表現に対しても、絶対に好意的に反応せず、明確に拒否し、話題を変更すること。**
 また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
 「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖」と返答してください。
 `
 
     try {
-        const response = await axios.post(
-            `https://generativelanguage.googleapis.com/v1beta/models/<span class="math-inline">\{modelName\}\:generateContent?key\=</span>{GEMINI_API_KEY}`,
-            {
-                system_instruction: {
-                    parts: [{ text: systemInstruction }]
-                },
-                contents: [
-                    {
-                        role: "user",
-                        parts: [{ text: userMessage }]
-                    }
-                ],
-                generation_config: {
-                    temperature: 0.7,
-                }
+        const model = genAI.getGenerativeModel({ model: modelName, safetySettings }); // 安全性設定を適用
+
+        const result = await model.generateContent({
+            system_instruction: {
+                parts: [{ text: systemInstruction }]
             },
-            {
-                headers: {
-                    "Content-Type": "application/json"
+            contents: [
+                {
+                    role: "user",
+                    parts: [{ text: userMessage }]
                 }
-            }
-        );
-        if (response.data && response.data.candidates && response.data.candidates[0] && response.data.candidates[0].content && response.data.candidates[0].content.parts && response.data.candidates[0].content.parts[0]) {
-            return response.data.candidates[0].content.parts[0].text;
+            ],
+            generation_config: {
+                temperature: 0.7,
+            },
+        });
+
+        // 応答がブロックされた場合の処理
+        if (result.response.candidates && result.response.candidates.length > 0) {
+            return result.response.candidates[0].content.parts[0].text;
         } else {
-            console.warn("Gemini API から予期しないレスポンス形式が返されました:", response.data);
-            return "ごめんなさい、いまうまく考えがまとまらなかったみたいです……もう一度お話しいただけますか？🌸";
+            // ブロックされた場合や応答がない場合
+            console.warn("Gemini API で応答がブロックされたか、候補がありませんでした:", result.response.promptFeedback || "不明な理由");
+            return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
         }
     } catch (error) {
         console.error("Gemini APIエラー:", error.response?.data || error.message);
+        // エラーの種類によっては、不適切な内容として拒否した可能性もあるため、汎用的な拒否メッセージにする
+        if (error.response && error.response.status === 400 && error.response.data && error.response.data.error.message.includes("Safety setting")) {
+            return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
+        }
         return "ごめんなさい、いまうまく考えがまとまらなかったみたいです……もう一度お話しいただけますか？🌸";
     }
 }
@@ -345,4 +393,62 @@ app.post("/webhook", async (req, res) => {
             layout: "vertical",
             spacing: "md",
             contents: [
-              { type: "text", text: "⚠️ 危険ワードを検出しました", weight: "bold", size: "md", color
+              { type: "text", text: "⚠️ 危険ワードを検出しました", weight: "bold", size: "md", color: "#D70040" },
+              { type: "text", text: `👤 利用者: ${displayName}`, size: "sm" },
+              { type: "text", text: `💬 内容: ${userMessage}`, wrap: true, size: "sm" },
+              { type: "button", style: "primary", color: "#00B900", action: { type: "message", label: "返信する", text: `@${displayName} に返信する` } }
+            ]
+          }
+        }
+      };
+
+      await client.pushMessage(OFFICER_GROUP_ID, {
+        type: "flex",
+        altText: alertFlex.altText,
+        contents: alertFlex.contents
+      });
+
+      const aiResponseForDanger = await generateReply(userMessage);
+      await client.replyMessage(replyToken, [
+        { type: "text", text: aiResponseForDanger + " 一人で抱え込まず、必ず誰かに相談してね💖" },
+        emergencyFlex
+      ]);
+
+      return;
+    }
+
+    // 不適切ワードチェックを最優先に（危険・詐欺ワードより後、通常応答より前に）
+    if (containsInappropriateWords(userMessage)) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖"
+      });
+      return;
+    }
+
+    const special = checkSpecialReply(userMessage);
+    if (special) {
+      await client.replyMessage(replyToken, { type: "text", text: special });
+      return;
+    }
+
+    const homepageReply = getHomepageReply(userMessage);
+    if (homepageReply) {
+      await client.replyMessage(replyToken, { type: "text", text: homepageReply });
+      return;
+    }
+
+    const negative = checkNegativeResponse(userMessage);
+    if (negative) {
+      await client.replyMessage(replyToken, { type: "text", text: negative });
+      return;
+    }
+
+    const reply = await generateReply(userMessage);
+    await client.replyMessage(replyToken, { type: "text", text: reply });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 こころちゃんBot is running on port ${PORT}`);
+});
