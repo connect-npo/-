@@ -223,14 +223,12 @@ async function generateReply(userMessage) {
     if (containsScamWords(userMessage) || containsDangerWords(userMessage)) {
         modelName = "gemini-1.5-pro";
     } else {
-        modelName = "gemini-1.5-flash"; // gemini-2.0-flash から gemini-1.5-flash に修正
+        modelName = "gemini-1.5-flash"; // gemini-2.0-flash から gemini-1.5-flash に修正済
     }
 
     const isHomeworkQuestion = containsHomeworkTrigger(userMessage);
-    const isInappropriate = containsInappropriateWords(userMessage); // 不適切ワードも考慮
+    const isInappropriate = containsInappropriateWords(userMessage);
 
-    // 不適切ワードが検出された場合は、AIによる生成をスキップし、固定メッセージを返す
-    // このチェックはGemini APIを呼び出す前に行われる
     if (isInappropriate) {
         return "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖";
     }
@@ -265,7 +263,7 @@ ${isHomeworkQuestion ? `質問者が勉強や宿題の内容を聞いてきた�
         const model = genAI.getGenerativeModel({ model: modelName, safetySettings });
 
         const result = await model.generateContent({
-            system_instruction: { 
+            system_instruction: {
                 parts: [{ text: systemInstruction }]
             },
             contents: [
@@ -274,22 +272,20 @@ ${isHomeworkQuestion ? `質問者が勉強や宿題の内容を聞いてきた�
                     parts: [{ text: userMessage }]
                 }
             ],
-            generation_config: { // generation_config はここに一度だけ記述
-                temperature: 0.7,
-            },
+            // **この generation_config の行を削除（またはコメントアウト）する！**
+            // generation_config: {
+            //     temperature: 0.7,
+            // },
         });
 
         if (result.response.candidates && result.response.candidates.length > 0) {
             return result.response.candidates[0].content.parts[0].text;
         } else {
-            // ブロックされた場合や応答がない場合
             console.warn("Gemini API で応答がブロックされたか、候補がありませんでした:", result.response.promptFeedback || "不明な理由");
-            // Safety Settingsでブロックされた場合も、このメッセージを返す
             return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
         }
     } catch (error) {
         console.error("Gemini APIエラー:", error.response?.data || error.message);
-        // エラーの種類によっては、不適切な内容として拒否した可能性もあるため、汎用的な拒否メッセージにする
         if (error.response && error.response.status === 400 && error.response.data && error.response.data.error.message.includes("Safety setting")) {
             return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
         }
