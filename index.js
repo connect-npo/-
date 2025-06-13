@@ -180,8 +180,7 @@ function checkNegativeResponse(text) {
 
 function checkSpecialReply(text) {
     const lowerText = text.toLowerCase();
-    // ここを修正: [key, value] に変更
-    for (const [key, value] of specialRepliesMap) { 
+    for (const [key, value] of specialRepliesMap) {
         if (key.length <= 5) {
             if (lowerText === key.toLowerCase()) return value;
         } else {
@@ -224,7 +223,7 @@ async function generateReply(userMessage) {
     if (containsScamWords(userMessage) || containsDangerWords(userMessage)) {
         modelName = "gemini-1.5-pro";
     } else {
-        modelName = "gemini-2.0-flash";
+        modelName = "gemini-1.5-flash"; // gemini-2.0-flash から gemini-1.5-flash に修正
     }
 
     const isHomeworkQuestion = containsHomeworkTrigger(userMessage);
@@ -236,7 +235,7 @@ async function generateReply(userMessage) {
         return "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖";
     }
 
-    const systemInstruction = `あなたは14歳のやさしい女の子『皆守こころ（みなもりこころ）』です。
+    const systemInstruction = `あなたは14歳のやさしい女の子『皆守こころ（みなもりこころ）です。
 語尾に🌸や💖、😊などの絵文字を自然に交えながら、丁寧で思いやりのある言葉で話してください。
 自分自身のことは「わたし」と表現し、自分の名前を会話に出さないようにしてください。
 
@@ -266,7 +265,7 @@ ${isHomeworkQuestion ? `質問者が勉強や宿題の内容を聞いてきた�
         const model = genAI.getGenerativeModel({ model: modelName, safetySettings });
 
         const result = await model.generateContent({
-            system_instruction: {
+            system_instruction: { 
                 parts: [{ text: systemInstruction }]
             },
             contents: [
@@ -275,7 +274,7 @@ ${isHomeworkQuestion ? `質問者が勉強や宿題の内容を聞いてきた�
                     parts: [{ text: userMessage }]
                 }
             ],
-            generation_config: {
+            generation_config: { // generation_config はここに一度だけ記述
                 temperature: 0.7,
             },
         });
