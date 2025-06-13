@@ -18,7 +18,8 @@ const client = new Client(config);
 
 const GEMINI_API_KEY = process.env.YOUR_GEMINI_API_KEY; // Renderの環境変数から取得
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
-const BOT_ADMIN_IDS = []; // ← ここに理事長 userId 入れてOK！複数なら ["xxxx", "yyyy"]
+// ★★★ まつさんのLINEユーザーIDを直接設定しました ★★★
+const BOT_ADMIN_IDS = ["Udada4206b73648833b844cfbf1562a87"]; 
 
 // Google Generative AIのインスタンス化
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
@@ -184,7 +185,7 @@ function checkNegativeResponse(text) {
 
 function checkSpecialReply(text) {
     const lowerText = text.toLowerCase();
-    for (const [key, value] of specialRepliesMap) {
+    for (const [key, value] = specialRepliesMap) {
         if (key.length <= 5) { // 短いキーワードは完全一致で反応
             if (lowerText === key.toLowerCase()) return value;
         } else { // 長いキーワードは部分一致で反応
@@ -263,7 +264,7 @@ ${isHomeworkQuestion ? `質問者が勉強や宿題の内容を聞いてきた�
 **断固として拒否し、相手にしないこと。好意的な返答はせず、即座に話題を切り替えるか、決められた拒否メッセージを返すこと。**
 **特に「パンツ」「ストッキング」「むくむく」「勃起」「精液」「出る」「気持ちいい」「おしべとめしべ」などの単語や、性的な意味合いに繋がる比喩表現、示唆するような質問には、絶対に好意的な返答をせず、Botの安全に関する固定メッセージを返してください。**
 また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
-「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖」と返答してください。
+「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答してください。
 `
 
     try {
@@ -365,6 +366,8 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
+    // グループからのメッセージかつ危険・詐欺ワードでなければ、処理をスキップ
+    // ただし、管理者からのメッセージは常に処理する
     if (groupId && !containsDangerWords(userMessage) && !containsScamWords(userMessage) && !isAdmin) {
         return;
     }
@@ -375,7 +378,7 @@ app.post("/webhook", async (req, res) => {
             type: "text",
             text: "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖"
         });
-        // 不適切ワードを検知した場合も理事長への通知
+        // ★★★不適切ワードを検知した場合は管理者（まつさん）にのみ通知★★★
         const displayName = await getUserDisplayName(userId);
         const inappropriateAlertFlex = {
             type: "flex",
@@ -395,11 +398,14 @@ app.post("/webhook", async (req, res) => {
                 }
             }
         };
-        await client.pushMessage(OFFICER_GROUP_ID, {
-            type: "flex",
-            altText: inappropriateAlertFlex.altText,
-            contents: inappropriateAlertFlex.contents
-        });
+        // BOT_ADMIN_IDS は配列なので、forEach で各管理者にプッシュメッセージを送る
+        for (const adminId of BOT_ADMIN_IDS) {
+            await client.pushMessage(adminId, {
+                type: "flex",
+                altText: inappropriateAlertFlex.altText,
+                contents: inappropriateAlertFlex.contents
+            });
+        }
         return;
     }
 
@@ -458,24 +464,24 @@ app.post("/webhook", async (req, res) => {
               { type: "text", text: `👤 利用者: ${displayName}`, size: "sm" },
               { type: "text", text: `💬 内容: ${userMessage}`, wrap: true, size: "sm" },
               { type: "button", style: "primary", color: "#00B900", action: { type: "message", label: "返信する", text: `@${displayName} に返信する` } }
-            ]
-          }
-        }
-      };
+                    ]
+                }
+            }
+        };
 
-      await client.pushMessage(OFFICER_GROUP_ID, {
-        type: "flex",
-        altText: alertFlex.altText,
-        contents: alertFlex.contents
-      });
+        await client.pushMessage(OFFICER_GROUP_ID, {
+            type: "flex",
+            altText: alertFlex.altText,
+            contents: alertFlex.contents
+        });
 
-      const aiResponseForDanger = await generateReply(userMessage);
-      await client.replyMessage(replyToken, [
-        { type: "text", text: aiResponseForDanger + " 一人で抱え込まず、必ず誰かに相談してね💖" },
-        emergencyFlex
-      ]);
+        const aiResponseForDanger = await generateReply(userMessage);
+        await client.replyMessage(replyToken, [
+            { type: "text", text: aiResponseForDanger + " 一人で抱え込まず、必ず誰かに相談してね💖" },
+            emergencyFlex
+        ]);
 
-      return;
+        return;
     }
 
     const special = checkSpecialReply(userMessage);
