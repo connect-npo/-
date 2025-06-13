@@ -180,7 +180,7 @@ function checkNegativeResponse(text) {
 
 function checkSpecialReply(text) {
     const lowerText = text.toLowerCase();
-    for (const [key, value] = specialRepliesMap) {
+    for (const [key, value] of specialRepliesMap) {
         if (key.length <= 5) {
             if (lowerText === key.toLowerCase()) return value;
         } else {
