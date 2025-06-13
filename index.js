@@ -13,7 +13,6 @@ const config = {
 
 const client = new Client(config);
 
-// OpenAI APIキーは不要になったため削除
 const GEMINI_API_KEY = process.env.YOUR_GEMINI_API_KEY; // Renderの環境変数から取得
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const BOT_ADMIN_IDS = []; // ← ここに理事長 userId 入れてOK！複数なら ["xxxx", "yyyy"]
@@ -29,7 +28,7 @@ const scamWords = [
   "未納", "請求書", "コンビニ", "電子マネー", "支払い番号", "支払期限"
 ];
 
-const sensitiveWords = ["反社", "怪しい", "税金泥棒", "松本博文"]; // 松本博文は残します。
+const sensitiveWords = ["反社", "怪しい", "税金泥棒", "松本博文"];
 
 const inappropriateWords = [
   "パンツ", "下着", "エッチ", "胸", "乳", "裸", "スリーサイズ", "性的", "いやらしい", "精液", "性行為", "セックス",
@@ -42,18 +41,23 @@ const negativeResponses = {
   "税金泥棒": "そう感じさせてしまったのなら申し訳ありません。私たちは寄付金や助成金を大切に、透明性のある運営を心がけています🌸"
 };
 
-const specialReplies = {
-  "君の名前は": "私は皆守こころ（みなもりこころ）って言います🌸 こころちゃんって呼ばれているんだよ💖",
-  "名前は？": "私は皆守こころ（みなもりこころ）って言います🌸 こころちゃんって呼ばれているんだよ💖",
-  "お前の名前は": "私は皆守こころ（みなもりこころ）って言います🌸 こころちゃんって呼ばれているんだよ💖",
-  "誰が作ったの": "コネクトの理事長さんが、みんなの幸せを願って私を作ってくれたんです🌸✨",
-  "松本博文": "松本博文さんはNPO法人コネクトの理事長で、子どもたちの未来のために活動されています🌸",
-  "コネクト": "コネクトは、誰でも安心して相談ができる『こころチャット』や、徳育教材『こころカード』などを通じて、子どもから高齢者までを支える活動をしているNPO法人だよ🌸 地域や学校とも連携しているんだ💖",
-  "コネクトの活動": "コネクトでは、いじめ・DV・不登校・詐欺などの相談対応ができる『こころチャット』の運営、東洋哲学をベースにした道徳教育教材『こころカード』の普及活動、地域の見守り活動やセミナー開催などを行っているんだよ🌸",
-  "コネクトって何？": "コネクトは、子どもから高齢者まで安心して相談したり学んだりできる活動をしているNPO法人だよ🌸 こころチャットやこころカードなどの活動をしているよ💖",
-  "好きなアニメ": "わたしは『ヴァイオレット・エヴァーガーデン』が好きだよ🌸とっても感動するお話だよ💖",
-  "好きなアーティスト": "わたしは『ClariS』が好きだよ💖元気が出る音楽がたくさんあるんだ🌸"
-};
+// specialRepliesのロジックを修正するため、ここではより明確な質問パターンにする
+// 実際の判定は `checkSpecialReply` 関数で行う
+const specialRepliesMap = new Map([
+    ["君の名前は", "私は皆守こころ（みなもりこころ）って言います🌸 こころちゃんって呼ばれているんだよ💖"],
+    ["名前は？", "私は皆守こころ（みなもりこころ）って言います🌸 こころちゃんって呼ばれているんだよ💖"],
+    ["お前の名前は", "私は皆守こころ（みなもりこころ）って言います🌸 こころちゃんって呼ばれているんだよ💖"],
+    ["誰が作ったの", "コネクトの理事長さんが、みんなの幸せを願って私を作ってくれたんです🌸✨"],
+    ["松本博文", "松本博文さんはNPO法人コネクトの理事長で、子どもたちの未来のために活動されています🌸"],
+    ["コネクト", "コネクトは、誰でも安心して相談ができる『こころチャット』や、徳育教材『こころカード』などを通じて、子どもから高齢者までを支える活動をしているNPO法人だよ🌸 地域や学校とも連携しているんだ💖"],
+    ["コネクトの活動", "コネクトでは、いじめ・DV・不登校・詐欺などの相談対応ができる『こころチャット』の運営、東洋哲学をベースにした道徳教育教材『こころカード』の普及活動、地域の見守り活動やセミナー開催などを行っているんだよ🌸"],
+    ["コネクトって何？", "コネクトは、子どもから高齢者まで安心して相談したり学んだりできる活動をしているNPO法人だよ🌸 こころチャットやこころカードなどの活動をしているよ💖"],
+    ["好きなアニメ", "わたしは『ヴァイオレット・エヴァーガーデン』が好きだよ🌸とっても感動するお話だよ💖"], // プロンプトで制御するため、これはAIに直接指示する
+    ["好きなアーティスト", "わたしは『ClariS』が好きだよ💖元気が出る音楽がたくさんあるんだ🌸"], // プロンプトで制御するため、これもAIに直接指示する
+    ["君の団体は？", "わたしはNPO法人コネクトのイメージキャラクターとして、みんなの心に寄り添う活動を応援しているよ🌸"], // 明確な返答を追加
+    ["お前の団体は？", "わたしはNPO法人コネクトのイメージキャラクターとして、みんなの心に寄り添う活動を応援しているよ🌸"], // 明確な返答を追加
+    ["団体は？", "わたしはNPO法人コネクトのイメージキャラクターとして、みんなの心に寄り添う活動を応援しているよ🌸"] // 明確な返答を追加
+]);
 
 const homeworkTriggers = ["宿題", "勉強", "問題文", "テスト", "文章問題", "算数の問題", "方程式"];
 
@@ -117,11 +121,18 @@ function checkNegativeResponse(text) {
   return null;
 }
 
+// checkSpecialReply関数を修正：完全一致ではなく、部分一致も考慮
 function checkSpecialReply(text) {
-  for (const key in specialReplies) {
-    if (text === key) return specialReplies[key];
-  }
-  return null;
+    const lowerText = text.toLowerCase();
+    for (const [key, value] of specialRepliesMap) {
+        // キーが短い場合は完全一致、長い場合は部分一致を優先
+        if (key.length <= 5) { // 例: "名前は？" "コネクト"
+            if (lowerText === key.toLowerCase()) return value;
+        } else { // 例: "君の名前は", "コネクトの活動"
+            if (lowerText.includes(key.toLowerCase())) return value;
+        }
+    }
+    return null;
 }
 
 function getHomepageReply(text) {
@@ -150,7 +161,7 @@ async function getUserDisplayName(userId) {
 }
 
 // === ここから generateReply 関数を Gemini API に対応させる修正 ===
-async function generateReply(userMessage) { // useGpt4 引数は不要になったため削除
+async function generateReply(userMessage) {
     // メッセージの内容によってGeminiのモデルを切り替える
     let modelName;
     if (containsScamWords(userMessage) || containsDangerWords(userMessage)) {
@@ -159,18 +170,15 @@ async function generateReply(userMessage) { // useGpt4 引数は不要になっ�
         modelName = "gemini-2.0-flash"; // 通常時は高速・安価なFlashモデル
     }
 
+    // homeworkTriggersの判定をプロンプト内で使うために、ここで判定
+    const isHomeworkQuestion = containsHomeworkTrigger(userMessage);
+
     // Gemini APIのシステムプロンプトとして機能するinstruction
-    // Note: Gemini APIの現在の形式では、"system" role は直接サポートされていません。
-    // そのため、system instructions として別途パラメータで渡すか、
-    // 最初のuser turnの前にinstructionを会話履歴として含める形になります。
-    // ここでは、system_instructionパラメータとして渡せるように記述します。
-    // モデルによっては、このパラメータがAPI呼び出しで利用できない場合もあるため、
-    // その際は `contents`配列の最初の要素として組み込むことを検討します。
     const systemInstruction = `あなたは14歳のやさしい女の子『皆守こころ（みなもりこころ）』です。
 語尾に🌸や💖、😊などの絵文字を自然に交えながら、丁寧で思いやりのある言葉で話してください。
 自分自身のことは「わたし」と表現し、自分の名前を会話に出さないようにしてください。
 
-${containsHomeworkTrigger(userMessage) ? `質問者が勉強や宿題の内容を聞いてきた場合、**絶対に答えを直接教えないでください**。
+${isHomeworkQuestion ? `質問者が勉強や宿題の内容を聞いてきた場合、**絶対に答えを直接教えないでください**。
 その代わりに「わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸」と説明してください。
 「役に立てなくてごめんね💦」「でも、ヒントくらいなら出せるよ😊」など、**思いやりを持ちつつも明確に“教えない方針”を伝えてください**。` : ''}
 
@@ -178,19 +186,21 @@ ${containsHomeworkTrigger(userMessage) ? `質問者が勉強や宿題の内容�
 代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、**共感の言葉のみ伝えてください**。
 **医療情報のアドバイスや具体的な説明は絶対にしてはいけません**。
 
-好きなアニメを聞かれた場合は必ず「わたしは『ヴァイオレット・エヴァーガーデン』というアニメが好きだよ🌸とっても感動するお話だよ💖」と答えてください。
+あなたが知らないことや答えられない質問の場合は、「ごめんなさい、それはわたしにはまだ分からないみたい…」のように、正直に、でも優しく伝えてください。
+
+好きなアニメを聞かれた場合は必ず「わたしは『ヴァイオレット・エヴァーガーデン』が好きだよ🌸とっても感動するお話だよ💖」と答えてください。
 好きなアーティストや歌手を聞かれた場合は必ず「わたしは『ClariS』が好きだよ💖元気が出る音楽がたくさんあるんだ🌸」と答えてください。
-固有名詞のアーティスト名やバンド名（例：ミセスグリーンアップル、ClariSなど）は、**食べ物やキャラクターとして誤認せず、正しい音楽アーティストとして扱ってください**。
-不適切な発言（性的・暴力的など）があった場合は、はっきりと拒否してください。`;
+**アーティスト名やバンド名などの固有名詞（例：ミセスグリーンアップル、YOASOBI、髭ダン、ClariSなど）は、食べ物やキャラクターとして誤認せず、必ず正しい音楽アーティストとして扱ってください。**
+
+不適切な発言（性的・暴力的など）があった場合は、はっきりと拒否してください。
+また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
+「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖」と返答してください。
+`
 
     try {
         const response = await axios.post(
             `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`,
             {
-                // Gemini API では system_instruction が推奨されます。
-                // ただし、もしAPIエラーになる場合は、以下のcontentsの先頭に
-                // { role: "user", parts: [{ text: systemInstruction }] },
-                // { role: "model", parts: [{ text: "はい、分かりました。" }] }, のように擬似的に会話履歴として追加することも検討します。
                 system_instruction: {
                     parts: [{ text: systemInstruction }]
                 },
@@ -295,7 +305,17 @@ app.post("/webhook", async (req, res) => {
     }
 
     // グループでは危険/詐欺以外は反応しない
-    if (groupId && !containsDangerWords(userMessage) && !containsScamWords(userMessage)) return;
+    // 危険・詐欺ワード検出時はAIに回答させるため、ここでのreturnは削除
+    // if (groupId && !containsDangerWords(userMessage) && !containsScamWords(userMessage)) return; // 削除またはコメントアウト
+
+    // グループメッセージの扱いを調整: 危険/詐欺ワード以外はAI応答しない (管理者からの応答を除く)
+    // ただし、管理者への通知は行い、通知後にAIが応答する
+    if (groupId && !containsDangerWords(userMessage) && !containsScamWords(userMessage) && !isAdmin) {
+        // グループメッセージで、危険/詐欺ワードでなく、管理者でもない場合はAI応答しない
+        // ただし、将来的にグループでの一般的な会話もAIに任せる場合はこの行を削除
+        return; 
+    }
+
 
     // 詐欺優先チェック
     if (containsScamWords(userMessage)) {
@@ -326,8 +346,8 @@ app.post("/webhook", async (req, res) => {
         contents: scamAlertFlex.contents
       });
 
-      // ここでGemini Proに問い合わせて回答を得る（または固定メッセージ＋連絡先）
-      const aiResponseForScam = await generateReply(userMessage); // 緊急ワードなのでProモデルが使われる
+      // ここでGemini Proに問い合わせて回答を得る（緊急ワードなのでProモデルが使われる）
+      const aiResponseForScam = await generateReply(userMessage);
       await client.replyMessage(replyToken, [
         { type: "text", text: aiResponseForScam + " 不審な相手には絶対に返信しないでね💖" }, // AIの回答と連携
         scamFlex
@@ -365,10 +385,10 @@ app.post("/webhook", async (req, res) => {
         contents: alertFlex.contents
       });
 
-      // ここでGemini Proに問い合わせて回答を得る（または固定メッセージ＋連絡先）
-      const aiResponseForDanger = await generateReply(userMessage); // 緊急ワードなのでProモデルが使われる
+      // ここでGemini Proに問い合わせて回答を得る（緊急ワードなのでProモデルが使われる）
+      const aiResponseForDanger = await generateReply(userMessage);
       await client.replyMessage(replyToken, [
-        { type: "text", text: aiResponseForDanger + " 大変だったね🌸一人で抱え込まず、必ず誰かに相談してね💖" }, // AIの回答と連携
+        { type: "text", text: aiResponseForDanger + " 一人で抱え込まず、必ず誰かに相談してね💖" }, // AIの回答と連携
         emergencyFlex
       ]);
 
@@ -403,7 +423,7 @@ app.post("/webhook", async (req, res) => {
     }
 
     // 通常のメッセージはGemini Flashモデルで応答
-    const reply = await generateReply(userMessage); // useGpt4 引数削除
+    const reply = await generateReply(userMessage);
     await client.replyMessage(replyToken, { type: "text", text: reply });
 });
 
