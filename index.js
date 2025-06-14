@@ -51,26 +51,33 @@ const dangerWords = [
   "いじめ", "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり"
 ];
 
-// 詐欺ワードをさらに追加（ひらがな「さぎ」と、緊急性・困窮を示すフレーズを追加）
-// ★★★「息子が」「困っています」などの誤検知ワードは削除しました★★★
-const scamWords = [
+// ★★★詐欺ワードリストを2段階に再定義しました★★★
+const highConfidenceScamWords = [
   "アマゾン", "amazon", "架空請求", "詐欺", "振込", "還付金", "カード利用確認", "利用停止",
   "未納", "請求書", "コンビニ", "電子マネー", "支払い番号", "支払期限",
-  "サギ", "さぎ", "サギかもしれない", "さぎかもしれない", // ひらがな・カタカナ両方と組み合わせを追加
+  "サギ", "さぎ", "サギかもしれない", "さぎかもしれない",
   "息子拘留", "保釈金", "拘留", "逮捕", "電話番号お知らせください",
   "自宅に取り", "自宅に伺い", "自宅訪問", "自宅に現金", "自宅を教え",
   "現金書留", "コンビニ払い", "ギフトカード", "プリペイドカード", "未払い", "支払って", "振込先",
   "名義変更", "口座凍結", "個人情報", "暗証番号", "ワンクリック詐欺", "フィッシング", "当選しました",
-  "高額報酬", "副業", "儲かる", "簡単に稼げる", "投資", "必ず儲かる", "未公開株", "SNS", "ライン", "LINE",
+  "高額報酬", "副業", "儲かる", "簡単に稼げる", "投資", "必ず儲かる", "未公開株",
   "サポート詐欺", "ウイルス感染", "パソコンが危険", "修理費", "遠隔操作", "セキュリティ警告",
   "役所", "市役所", "年金", "健康保険", "給付金", "還付金", "税金", "税務署", "国民健康保険",
   "弁護士", "警察", "緊急", "トラブル", "解決", "至急", "すぐに", "今すぐ", "連絡ください", "電話ください", "訪問します"
 ];
 
+// 日常会話でも使われるが、特定の文脈で詐欺に繋がりやすいキーワードとフレーズ
+const contextualScamPhrases = [
+  "lineで送金", "lineアカウント凍結", "lineアカウント乗っ取り", "line不正利用", "lineから連絡", "line詐欺",
+  "snsで稼ぐ", "sns投資", "sns副業",
+  "urlをクリック", "クリックしてください", "通知からアクセス", "メールに添付", "個人情報要求", "認証コード",
+  "電話番号を教えて", "lineのidを教えて", "パスワードを教えて" // より具体的なフレーズを追加
+];
+// ★★★ここまで修正★★★
+
 const sensitiveWords = ["反社", "怪しい", "税金泥棒", "松本博文"];
 
 // 不適切ワードリストをさらに徹底的に強化 (比喩表現、動詞+助詞の組み合わせを意識)
-// ★★★「パパ」など褒め言葉で誤検知された可能性のあるワードを削除しました★★★
 const inappropriateWords = [
   "パンツ", "下着", "エッチ", "胸", "乳", "裸", "スリーサイズ", "性的", "いやらしい", "精液", "性行為", "セックス",
   "ショーツ", "ぱんつ", "パンティー", "パンティ", "ぱふぱふ", "おぱんつ", "ぶっかけ", "射精", "勃起", "たってる", "全裸", "母乳", "おっぱい", "ブラ", "ブラジャー",
@@ -170,11 +177,28 @@ function isBotAdmin(userId) {
   return BOT_ADMIN_IDS.includes(userId);
 }
 
+// ★★★containsScamWords関数を修正しました★★★
 function containsScamWords(text) {
-  // 詐欺ワードも小文字で比較
   const lowerText = text.toLowerCase();
-  return scamWords.some(word => lowerText.includes(word.toLowerCase()));
+
+  // Tier 1: 高確率で詐欺と判断できる単語 - これらが含まれていれば即座にtrue
+  for (const word of highConfidenceScamWords) {
+    if (lowerText.includes(word.toLowerCase())) {
+      return true;
+    }
+  }
+
+  // Tier 2: 日常会話でも使われるが、特定の文脈で詐欺に繋がりやすいフレーズ
+  // これらのフレーズ全体がメッセージに含まれている場合にtrue
+  for (const phrase of contextualScamPhrases) {
+    if (lowerText.includes(phrase.toLowerCase())) {
+      return true;
+    }
+  }
+
+  return false; // どの条件にも当てはまらなければ詐欺ワードなし
 }
+// ★★★containsScamWords関数ここまで★★★
 
 function checkNegativeResponse(text) {
   for (const word in negativeResponses) {
@@ -185,7 +209,6 @@ function checkNegativeResponse(text) {
 
 function checkSpecialReply(text) {
     const lowerText = text.toLowerCase();
-    // ★★★ここを修正しました★★★
     for (const [key, value] of specialRepliesMap) { 
         if (key.length <= 5) { // 短いキーワードは完全一致で反応
             if (lowerText === key.toLowerCase()) return value;
@@ -198,7 +221,6 @@ function checkSpecialReply(text) {
 
 function getHomepageReply(text) {
   if (text.includes("ホームページ")) {
-    // ★★★「私たちの」を「コネクトの」に修正しました★★★
     return "コネクトのホームページかな？🌸 コネクトのホームページはこちらです🌸 https://connect-npo.org";
   }
   return null;
@@ -281,7 +303,6 @@ ${isHomeworkQuestion ? `質問者が勉強や宿題の内容を聞いてきた�
                     parts: [{ text: userMessage }]
                 }
             ]
-            // ★★★generation_config は削除しました★★★
         });
 
         if (result.response.candidates && result.response.candidates.length > 0) {
@@ -367,9 +388,15 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
+    // 管理者からのメッセージは、危険・詐欺・不適切ワードの検知をスキップし、AI応答を生成する
+    if (isAdmin) {
+        const replyText = await generateReply(userMessage);
+        await client.replyMessage(replyToken, { type: "text", text: replyText });
+        return; 
+    }
+
     // グループからのメッセージかつ危険・詐欺ワードでなければ、処理をスキップ
-    // ただし、管理者からのメッセージは常に処理する
-    if (groupId && !containsDangerWords(userMessage) && !containsScamWords(userMessage) && !isAdmin) {
+    if (groupId && !containsDangerWords(userMessage) && !containsScamWords(userMessage)) {
         return;
     }
     
@@ -379,7 +406,7 @@ app.post("/webhook", async (req, res) => {
             type: "text",
             text: "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖"
         });
-        // ★★★不適切ワードを検知した場合は管理者（まつさん）にのみ通知★★★
+        // 不適切ワードを検知した場合は管理者（まつさん）にのみ通知
         const displayName = await getUserDisplayName(userId);
         const inappropriateAlertFlex = {
             type: "flex",
@@ -411,9 +438,103 @@ app.post("/webhook", async (req, res) => {
     }
 
 
-    if (containsScamWords(userMessage)) {
+    if (containsScamWords(userMessage)) { // ★★★containsScamWords関数の内部ロジックが変更されている★★★
       const displayName = await getUserDisplayName(userId);
 
       const scamAlertFlex = {
         type: "flex",
-        altText: "⚠️ 詐欺ワード
+        altText: "⚠️ 詐欺ワード通知",
+        contents: {
+          type: "bubble",
+          body: {
+            type: "box",
+            layout: "vertical",
+            spacing: "md",
+            contents: [
+              { type: "text", text: "⚠️ 詐欺ワードを検出しました", weight: "bold", size: "md", color: "#D70040" },
+              { type: "text", text: `👤 利用者: ${displayName}`, size: "sm" },
+              { type: "text", text: `💬 内容: ${userMessage}`, wrap: true, size: "sm" },
+              { type: "button", style: "primary", color: "#1E90FF", action: { type: "message", label: "警察 110 (24時間)", uri: "tel:110" } },
+              { type: "button", style: "primary", color: "#4CAF50", action: { type: "message", label: "多摩市消費生活センター", text: "0423712882" } },
+              { type: "button", style: "primary", color: "#DA70D6", action: { type: "uri", label: "理事長に電話", uri: "tel:09048393313" } }
+            ]
+          }
+        }
+      };
+
+      await client.replyMessage(replyToken, scamFlex); // ユーザーには固定の詐欺警告を返す
+      // 理事グループにFlex Messageを送信
+      if (OFFICER_GROUP_ID) {
+        await client.pushMessage(OFFICER_GROUP_ID, {
+          type: "flex",
+          altText: scamAlertFlex.altText,
+          contents: scamAlertFlex.contents
+        });
+      }
+      return;
+    }
+
+    if (containsDangerWords(userMessage)) {
+      const displayName = await getUserDisplayName(userId);
+
+      const dangerAlertFlex = {
+        type: "flex",
+        altText: "⚠️ 危険ワード通知",
+        contents: {
+          type: "bubble",
+          body: {
+            type: "box",
+            layout: "vertical",
+            spacing: "md",
+            contents: [
+              { type: "text", text: "⚠️ 危険ワードを検出しました", weight: "bold", size: "md", color: "#D70040" },
+              { type: "text", text: `👤 利用者: ${displayName}`, size: "sm" },
+              { type: "text", text: `💬 内容: ${userMessage}`, wrap: true, size: "sm" },
+              { type: "button", style: "primary", color: "#FFA07A", action: { type: "uri", label: "チャイルドライン", uri: "tel:0120997777" } },
+              { type: "button", style: "primary", color: "#FF7F50", action: { type: "uri", label: "いのちの電話", uri: "tel:0120783556" } },
+              { type: "button", style: "primary", color: "#DA70D6", action: { type: "uri", label: "理事長に電話", uri: "tel:09048393313" } }
+            ]
+          }
+        }
+      };
+
+      await client.replyMessage(replyToken, emergencyFlex); // ユーザーには固定の緊急連絡先を返す
+      // 理事グループにFlex Messageを送信
+      if (OFFICER_GROUP_ID) {
+        await client.pushMessage(OFFICER_GROUP_ID, {
+          type: "flex",
+          altText: dangerAlertFlex.altText,
+          contents: dangerAlertFlex.contents
+        });
+      }
+      return;
+    }
+
+    const specialReply = checkSpecialReply(userMessage);
+    if (specialReply) {
+      await client.replyMessage(replyToken, { type: "text", text: specialReply });
+      return;
+    }
+
+    const homepageReply = getHomepageReply(userMessage);
+    if (homepageReply) {
+      await client.replyMessage(replyToken, { type: "text", text: homepageReply });
+      return;
+    }
+
+    const negativeResponse = checkNegativeResponse(userMessage);
+    if (negativeResponse) {
+      await client.replyMessage(replyToken, { type: "text", text: negativeResponse });
+      return;
+    }
+
+    // デフォルトのAI応答
+    const replyText = await generateReply(userMessage);
+    await client.replyMessage(replyToken, { type: "text", text: replyText });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
