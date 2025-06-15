@@ -80,7 +80,6 @@ const safetySettings = [
     },
 ];
 
-// ★修正点1: dangerWords から「いじめ」を削除
 const dangerWords = [
     "しにたい", "死にたい", "自殺", "消えたい", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
     "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり"
@@ -89,7 +88,7 @@ const dangerWords = [
 const highConfidenceScamWords = [
     "アマゾン", "amazon", "架空請求", "詐欺", "振込", "還付金", "カード利用確認", "利用停止",
     "未納", "請求書", "コンビニ", "電子マネー", "支払い番号", "支払期限",
-    // ★修正点2: 「サギ」「さぎ」を削除。より具体的な詐欺ワードに絞る
+    // 「サギ」「さぎ」は前回削除済み。ここに変更なし。
     "息子拘留", "保釈金", "拘留", "逮捕", "電話番号お知らせください",
     "自宅に取り", "自宅に伺い", "自宅訪問", "自宅に現金", "自宅を教え",
     "現金書留", "コンビニ払い", "ギフトカード", "プリペイドカード", "未払い", "支払って", "振込先",
@@ -107,8 +106,7 @@ const contextualScamPhrases = [
     "電話番号を教えて", "lineのidを教えて", "パスワードを教えて"
 ];
 
-// ★修正点3: sensitiveWords を完全に削除し、AIプロンプトで対応
-// const sensitiveWords = ["反社", "怪しい", "税金泥棒", "松本博文"];
+// sensitiveWords はAIプロンプトで対応するため、オブジェクトとしては削除済み。
 
 const inappropriateWords = [
     "パンツ", "下着", "エッチ", "胸", "乳", "裸", "スリーサイズ", "性的", "いやらしい", "精液", "性行為", "セックス",
@@ -145,6 +143,7 @@ const specialRepliesMap = new Map([
     ["コネクトってどんな団体？", "NPO法人コネクトは、こどもやご年配の方の笑顔を守る団体なんだよ😊　わたしはそのイメージキャラクターとしてがんばってます🌸"],
     ["お前の団体どこ？", "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
     ["コネクトのイメージキャラなのにいえないのかよｗ", "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
+    // 以前の negativeResponses の内容もAIに任せるため、マップからは削除
 
     // ホームページに関する応答
     ["ホームページ教えて", "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.org"],
@@ -258,6 +257,10 @@ const watchServiceGuideFlex = {
     }
 };
 
+// ★追加：IDがユーザーID（Uで始まる）かどうかを判定する関数
+function isUserId(id) {
+    return id && id.startsWith("U");
+}
 
 function containsDangerWords(text) {
     return dangerWords.some(word => text.includes(word));
@@ -274,11 +277,10 @@ function containsScamWords(text) {
             return true;
         }
     }
-    for (const phrase of contextualScamPhrases) {
-        if (lowerText.includes(phrase.toLowerCase())) {
-            return true;
-        }
-    }
+    // contextualScamPhrases は特定の文脈での詐欺検出に使うため、管理グループへの通知では厳密には使わない
+    // if (contextualScamPhrases.some(phrase => lowerText.includes(phrase.toLowerCase()))) {
+    //     return true;
+    // }
     return false;
 }
 
@@ -319,8 +321,6 @@ async function getUserDisplayName(userId) {
 
 async function generateReply(userMessage) {
     let modelName;
-    // 危険ワード、詐欺ワードが含まれているかどうかに応じてモデルを切り替えるロジックを
-    // 今回はAIの振る舞いを変えるプロンプトで対応するため、基本はflashを使う
     modelName = "gemini-1.5-flash";
 
     const isHomeworkQuestion = containsHomeworkTrigger(userMessage);
@@ -330,7 +330,6 @@ async function generateReply(userMessage) {
         return "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖";
     }
 
-    // ★修正点4: AIのシステムプロンプトに団体への疑義に対する回答方針を追加
     const systemInstruction = `
 あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
 - 身長150cm、体重40kg、ピンク髪
@@ -919,8 +918,7 @@ app.post("/webhook", async (req, res) => {
             continue;
         }
 
-        // 管理者グループにメッセージを送信しない場合は、危険ワード・詐欺ワード以外はここで処理を終了
-        // ※グループからのメッセージは基本的にAI応答を返さない（通知のみ）
+        // グループでは危険/詐欺以外は反応しない (管理者がグループに参加している場合)
         if (groupId && !containsDangerWords(userMessage) && !containsScamWords(userMessage)) {
             await messagesCollection.insertOne({
                 userId: userId,
@@ -940,7 +938,7 @@ app.post("/webhook", async (req, res) => {
                 text: replyForInappropriate
             });
             const displayName = await getUserDisplayName(userId);
-            const inappropriateAlertFlex = {
+            const inappropriateAlertFlex = { // このFlexはユーザーには送らず、管理者へ送るためのもの
                 type: "flex",
                 altText: "⚠️ 不適切ワード通知",
                 contents: {
@@ -958,7 +956,26 @@ app.post("/webhook", async (req, res) => {
                     }
                 }
             };
+
+            // ★修正点1: グループにはテキスト通知のみ
+            if (OFFICER_GROUP_ID) {
+                // targetId が OFFICER_GROUP_ID の場合はisUserIdはfalseになる
+                if (isUserId(OFFICER_GROUP_ID)) { // この分岐はOFFICER_GROUP_IDがユーザーIDの場合のみ通る
+                    await client.pushMessage(OFFICER_GROUP_ID, {
+                        type: "flex",
+                        altText: inappropriateAlertFlex.altText,
+                        contents: inappropriateAlertFlex.contents
+                    });
+                } else { // OFFICER_GROUP_ID がグループIDの場合
+                    await client.pushMessage(OFFICER_GROUP_ID, {
+                        type: "text",
+                        text: `⚠️ 不適切ワード通知\n👤 利用者: ${displayName}\n💬 内容: ${userMessage}`
+                    });
+                }
+            }
+            // 個別の管理者IDへの通知はFlexのまま
             for (const adminId of BOT_ADMIN_IDS) {
+                // BOT_ADMIN_IDS はユーザーIDなのでisUserIdはtrueになる
                 await client.pushMessage(adminId, {
                     type: "flex",
                     altText: inappropriateAlertFlex.altText,
@@ -1002,13 +1019,22 @@ app.post("/webhook", async (req, res) => {
                 }
             };
 
-            await client.replyMessage(replyToken, scamFlex);
+            await client.replyMessage(replyToken, scamFlex); // ユーザーにはFlexを返す
+
+            // ★修正点1: グループにはテキスト通知のみ
             if (OFFICER_GROUP_ID) {
-                await client.pushMessage(OFFICER_GROUP_ID, {
-                    type: "flex",
-                    altText: scamAlertFlex.altText,
-                    contents: scamAlertFlex.contents
-                });
+                if (isUserId(OFFICER_GROUP_ID)) { // OFFICER_GROUP_IDがユーザーIDの場合のみ通る
+                    await client.pushMessage(OFFICER_GROUP_ID, {
+                        type: "flex",
+                        altText: scamAlertFlex.altText,
+                        contents: scamAlertFlex.contents
+                    });
+                } else { // OFFICER_GROUP_ID がグループIDの場合
+                    await client.pushMessage(OFFICER_GROUP_ID, {
+                        type: "text",
+                        text: `⚠️ 詐欺ワード通知\n👤 利用者: ${displayName}\n💬 内容: ${userMessage}`
+                    });
+                }
             }
             await messagesCollection.insertOne({
                 userId: userId,
@@ -1046,13 +1072,22 @@ app.post("/webhook", async (req, res) => {
                 }
             };
 
-            await client.replyMessage(replyToken, emergencyFlex);
+            await client.replyMessage(replyToken, emergencyFlex); // ユーザーにはFlexを返す
+
+            // ★修正点1: グループにはテキスト通知のみ
             if (OFFICER_GROUP_ID) {
-                await client.pushMessage(OFFICER_GROUP_ID, {
-                    type: "flex",
-                    altText: dangerAlertFlex.altText,
-                    contents: dangerAlertFlex.contents
-                });
+                if (isUserId(OFFICER_GROUP_ID)) { // OFFICER_GROUP_IDがユーザーIDの場合のみ通る
+                    await client.pushMessage(OFFICER_GROUP_ID, {
+                        type: "flex",
+                        altText: dangerAlertFlex.altText,
+                        contents: dangerAlertFlex.contents
+                    });
+                } else { // OFFICER_GROUP_ID がグループIDの場合
+                    await client.pushMessage(OFFICER_GROUP_ID, {
+                        type: "text",
+                        text: `⚠️ 危険ワード通知\n👤 利用者: ${displayName}\n💬 内容: ${userMessage}`
+                    });
+                }
             }
             await messagesCollection.insertOne({
                 userId: userId,
