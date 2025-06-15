@@ -400,7 +400,8 @@ async function sendLetterToUsers() {
     }
 
     const usersCollection = db.collection('users'); // ユーザー管理用コレクション
-    const allUsers = await usersCollection.find({}).toArray();
+    // 修正箇所1: isWatchEnabled: true のユーザーのみを対象にする
+    const allUsers = await usersCollection.find({ isWatchEnabled: true }).toArray();
 
     const today = new Date();
     // 3日に1回というロジックを実装
@@ -452,9 +453,11 @@ async function checkUnrespondedUsers() {
     const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
 
     // 送信から24時間以上経過しており、かつステータスが「未応答」のユーザー
+    // isWatchEnabled: true の条件も追加して、見守り対象者のみをチェック
     const unrespondedUsers = await usersCollection.find({
         lastSent: { $lte: twentyFourHoursAgo.toISOString() }, // 24時間以上前に送信
-        status: "未応答"
+        status: "未応答",
+        isWatchEnabled: true // 見守り対象のユーザーのみ
     }).toArray();
 
     for (const user of unrespondedUsers) {
@@ -494,9 +497,11 @@ async function notifyOfficerIfNoResponse() {
     const fiveHoursAgo = new Date(now.getTime() - (5 * 60 * 60 * 1000));
 
     // リマインド送信から5時間以上経過しており、かつステータスが「リマインド済」のユーザー
+    // isWatchEnabled: true の条件も追加して、見守り対象者のみをチェック
     const criticallyUnrespondedUsers = await usersCollection.find({
         remindSentAt: { $lte: fiveHoursAgo.toISOString() }, // リマインドから5時間以上経過
-        status: "リマインド済"
+        status: "リマインド済",
+        isWatchEnabled: true // 見守り対象のユーザーのみ
     }).toArray();
 
     if (criticallyUnrespondedUsers.length > 0) {
@@ -571,7 +576,13 @@ app.post("/webhook", async (req, res) => {
 
                 await usersCollection.updateOne(
                     { userId: userId },
-                    { $set: { displayName: displayName, lastActive: new Date().toISOString() } },
+                    {
+                        $set: {
+                            displayName: displayName,
+                            lastActive: new Date().toISOString(),
+                            isWatchEnabled: true // ← これを追加！初回メッセージで自動的に見守り対象に設定
+                        }
+                    },
                     { upsert: true } // ユーザーが存在しない場合は新規作成
                 );
                 console.log(`ユーザー ${userId} の情報をMongoDBに更新/作成しました。`);
@@ -795,32 +806,34 @@ app.post("/webhook", async (req, res) => {
             return;
         }
 
+        // ここから通常のAI応答処理
+        let replyText = "";
         const specialReply = checkSpecialReply(userMessage);
-        if (specialReply) {
-            await client.replyMessage(replyToken, { type: "text", text: specialReply });
-            return;
-        }
-
+        const negativeReply = checkNegativeResponse(userMessage);
         const homepageReply = getHomepageReply(userMessage);
-        if (homepageReply) {
-            await client.replyMessage(replyToken, { type: "text", text: homepageReply });
-            return;
+
+        if (specialReply) {
+            replyText = specialReply;
+        } else if (negativeReply) {
+            replyText = negativeReply;
+        } else if (homepageReply) {
+            replyText = homepageReply;
+        } else {
+            replyText = await generateReply(userMessage);
         }
 
-        const negativeResponse = checkNegativeResponse(userMessage);
-        if (negativeResponse) {
-            await client.replyMessage(replyToken, { type: "text", text: negativeResponse });
-            return;
-        }
-
-        // デフォルトのAI応答
-        const replyText = await generateReply(userMessage);
         await client.replyMessage(replyToken, { type: "text", text: replyText });
     }
 });
 
+// エラーハンドリングミドルウェア（オプション）
+app.use((err, req, res, next) => {
+    console.error("アプリケーションエラー:", err);
+    res.sendStatus(500); // サーバーエラーを返す
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
-    console.log(`Server running on port ${PORT}`);
-    await connectMongoDB(); // アプリケーション起動時にMongoDBに接続
+    console.log(`サーバーがポート ${PORT} で稼働中です。`);
+    await connectMongoDB(); // サーバー起動時にMongoDBに接続
 });
