@@ -140,23 +140,37 @@ const inappropriateWords = [
 const negativeResponses = {
     "反社": "ご安心ください。コネクトは法令を遵守し、信頼ある活動を行っています🌸",
     "怪しい": "怪しく見えるかもしれませんが、活動内容はすべて公開しており、信頼第一で運営しています🌸",
-    "税金泥棒": "そう感じさせてしまったのなら申し訳ありません。私たちは寄付金や助成金を大切に、透明性のある運営を心がけています🌸"
+    "税金泥棒": "そう感じさせてしまったのなら申し訳ありません。私たちは寄付金や助成金を大切に、透明性のある運営を心がけています🌸",
+    // 会話ログを踏まえた追加・修正
+    "何も答えないじゃん": "ごめんなさい💦 どんなことについて話したいのか教えてくれると嬉しいな🌸 もっとお役に立てるように頑張るね💖",
+    "普通の会話が出来ないなら必要ないです": "ごめんなさい💦 わたしはまだお話の勉強中なんだ🌸 どんな会話ができると嬉しいか、教えてくれると嬉しいな💖",
+    "なめてんのか": "ごめんなさい、そんな風に思わせてしまって悲しいな…。わたしはあなたの力になりたいだけだよ🌸 どんなことでも話してほしいな💖"
 };
 
 const specialRepliesMap = new Map([
+    // 名前に関する応答を強化・優先
     ["君の名前は", "私は皆守こころ（みなもりこころ）って言います🌸 こころちゃんって呼ばれているんだよ💖"],
     ["名前は？", "私は皆守こころ（みなもりこころ）って言います🌸 こころちゃんって呼ばれているんだよ💖"],
     ["お前の名前は", "私は皆守こころ（みなもりこころ）って言います🌸 こころちゃんって呼ばれているんだよ💖"],
+    ["こころちゃんでしょ？", "そうだよ🌸 こころって呼んでくれて嬉しいな💖 何か用事かな？😊"], // 変更
+    ["皆守こころだよね？", "そうだよ🌸 よく知ってるね💖 お話できて嬉しいな！何かあった？😊"], // 変更
+
+    // 団体に関する応答を強化・優先
     ["誰が作ったの", "コネクトの理事長さんが、みんなの幸せを願って私を作ってくれたんです🌸✨"],
-    ["松本博文", "松本博文さんはNPO法人コネクトの理事長で、子どもたちの未来のために活動されています🌸"],
     ["コネクト", "コネクトは、子どもから高齢者までを支えるNPO法人だよ🌸 わたしはコネクトのイメージキャラクターとして、みんなの心を応援しているんだ💖"],
-    ["コネクトの活動", "コネクトでは、いじめ・DV・不登校・詐欺などの相談対応ができる『こころチャット』の運営、東洋哲学をベースにした道徳教育教材『こころカード』の普及活動、地域の見守り活動やセミナー開催などを行っているんだよ🌸"],
     ["コネクトって何？", "コネクトは、子どもから高齢者まで安心して相談したり学んだりできる活動をしているNPO法人だよ🌸 こころチャットやこころカードなどの活動をしているよ💖"],
     ["君の団体は？", "わたしはNPO法人コネクトのイメージキャラクターとして、みんなの心に寄り添う活動を応援しているよ🌸"],
     ["お前の団体は？", "わたしはNPO法人コネクトのイメージキャラクターとして、みんなの心を応援しているよ🌸"],
     ["団体は？", "わたしはNPO法人コネクトのイメージキャラクターとして、みんなの心に寄り添う活動を応援しているよ🌸"],
     ["所属は？", "わたしはNPO法人コネクトのイメージキャラクターとして、みんなの心に寄り添う活動を応援しているよ🌸"],
     ["あなたの団体は？", "わたしはNPO法人コネクトのイメージキャラクターとして、みんなの心に寄り添う活動を応援しているよ🌸"],
+    ["コネクトのイメージキャラなのに知らないの？", "ごめんなさい💦 もっとコネクトのことを知れるように勉強するね！ コネクトは、みんなの心に寄り添うNPO法人だよ🌸"], // 変更
+
+    // ホームページに関する応答を強化・優先
+    ["ホームページ", "コネクトのホームページかな？🌸 コネクトのホームページはこちらです🌸 https://connect-npo.org"],
+    ["ホームページとかあるの？", "コネクトのホームページはこちらです🌸 https://connect-npo.org 見てみてね💖"], // 追加
+    ["コネクトのホームページだよ？", "教えてくれてありがとう！🌸 コネクトのホームページはこちらだよ💖 https://connect-npo.org"], // 変更
+
     ["好きなアニメ", "わたしは『ヴァイオレット・エヴァーガーデン』が好きだよ🌸とっても感動するお話だよ💖"],
     ["好きなアーティスト", "わたしは『ClariS』が好きだよ💖元気が出る音楽がたくさんあるんだ🌸"]
 ]);
@@ -206,6 +220,52 @@ const scamFlex = {
     }
 };
 
+// 見守りサービス案内用のFlex Message
+const watchServiceGuideFlex = {
+    type: 'flex',
+    altText: '見守りサービスのご案内',
+    contents: {
+        type: 'bubble',
+        body: {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+                { type: 'text', text: '🌸見守りサービス🌸', weight: 'bold', size: 'lg' },
+                { type: 'text', text: '3日に1回こころちゃんが「元気かな？」と聞きます', wrap: true, size: 'sm', margin: 'md' },
+                { type: 'text', text: 'OKボタンを押すだけで、見守り完了💖', wrap: true, size: 'sm' }
+            ]
+        },
+        footer: {
+            type: 'box',
+            layout: 'horizontal',
+            spacing: 'md', // ボタン間のスペースを調整
+            contents: [
+                {
+                    type: 'button',
+                    action: {
+                        type: 'postback',
+                        label: '見守り登録する',
+                        data: 'action=watch_register'
+                    },
+                    style: 'primary',
+                    color: '#FFB6C1' // 薄いピンク色
+                },
+                {
+                    type: 'button',
+                    action: {
+                        type: 'postback',
+                        label: '見守り解除する',
+                        data: 'action=watch_unregister'
+                    },
+                    style: 'secondary', // デフォルトの色 (白など)
+                    color: '#ADD8E6' // 水色
+                }
+            ]
+        }
+    }
+};
+
+
 function containsDangerWords(text) {
     return dangerWords.some(word => text.includes(word));
 }
@@ -230,8 +290,9 @@ function containsScamWords(text) {
 }
 
 function checkNegativeResponse(text) {
+    const lowerText = text.toLowerCase(); // 小文字化して比較
     for (const word in negativeResponses) {
-        if (text.includes(word)) return negativeResponses[word];
+        if (lowerText.includes(word.toLowerCase())) return negativeResponses[word]; // 小文字化して比較
     }
     return null;
 }
@@ -239,9 +300,10 @@ function checkNegativeResponse(text) {
 function checkSpecialReply(text) {
     const lowerText = text.toLowerCase();
     for (const [key, value] of specialRepliesMap) {
-        if (key.length <= 5) {
+        // キーワードが短い場合は完全一致、長い場合は部分一致で判定
+        if (key.length <= 5) { // 5文字以下のキーワードは完全一致で強く判定
             if (lowerText === key.toLowerCase()) return value;
-        } else {
+        } else { // 6文字以上のキーワードは部分一致で判定
             if (lowerText.includes(key.toLowerCase())) return value;
         }
     }
@@ -249,8 +311,9 @@ function checkSpecialReply(text) {
 }
 
 function getHomepageReply(text) {
-    if (text.includes("ホームページ")) {
-        return "コネクトのホームページかな？🌸 コネクトのホームページはこちらです🌸 https://connect-npo.org";
+    const lowerText = text.toLowerCase();
+    if (lowerText.includes("ホームページ")) {
+        return "コネクトのホームページはこちらです🌸 https://connect-npo.org";
     }
     return null;
 }
@@ -409,7 +472,22 @@ const watchServiceNotice = `
 async function handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, userMessage) {
     const user = await usersCollection.findOne({ userId: userId });
 
-    if (userMessage.includes("見守り登録します")) {
+    // 「見守り」「みまもり」などでメニュー表示
+    const lowerUserMessage = userMessage.toLowerCase();
+    if (["見守り", "みまもり", "見守りサービス", "みまもりサービス"].includes(lowerUserMessage) && event.type === 'message' && event.message.type === 'text') {
+        await client.replyMessage(event.replyToken, watchServiceGuideFlex);
+        await messagesCollection.insertOne({
+            userId: userId,
+            message: userMessage,
+            replyText: '（見守りサービス案内Flex表示）',
+            respondedBy: 'こころちゃん（見守り案内）',
+            timestamp: new Date(),
+        });
+        return true;
+    }
+
+
+    if (userMessage.includes("見守り登録します")) { // このテキストメッセージはリッチメニューやFlexMessageからの誘導で使われる想定
         if (user && user.registrationStep === 'awaiting_contact') {
             await client.replyMessage(event.replyToken, {
                 type: 'text',
@@ -470,7 +548,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
         }
     }
 
-    if (userMessage.includes("見守り解除します")) {
+    if (userMessage.includes("見守り解除します")) { // このテキストメッセージはリッチメニューやFlexMessageからの誘導で使われる想定
         if (user && user.wantsWatchCheck) {
             await usersCollection.updateOne(
                 { userId: userId },
@@ -502,7 +580,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
     }
 
     // 「OKだよ💖」などの応答に対する処理
-    const lowerUserMessage = userMessage.toLowerCase();
+    // ここはFlex Message/リッチメニューのpostbackではない、通常のテキスト応答として処理
     if (user && user.wantsWatchCheck && (lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫") || lowerUserMessage.includes("げんき") || lowerUserMessage.includes("元気"))) {
         await usersCollection.updateOne(
             { userId: userId },
@@ -624,7 +702,7 @@ app.post("/webhook", async (req, res) => {
             await usersCollection.insertOne({
                 userId: userId,
                 name: profile.displayName,
-                isWatchEnabled: false, // デフォルトでは見守りOFF
+                wantsWatchCheck: false, // デフォルトでは見守りOFF
                 emergencyContact: null, // デフォルトでnull
                 lastOkResponse: null, // デフォルトでnull
                 registrationStep: null, // 登録ステップの管理用
@@ -636,7 +714,7 @@ app.post("/webhook", async (req, res) => {
             if (event.type === 'message' && event.message.type === 'text') {
                 await client.replyMessage(replyToken, {
                     type: 'text',
-                    text: `こんにちは💖こころちゃんだよ！\n私とLINEで繋がってくれてありがとう🌸\n\n困ったことや誰かに聞いてほしいことがあったら、いつでも話しかけてね。わたしはあなたの味方だよ😊\n\n『見守り登録します』と送ると、定期的にわたしから「元気かな？」ってメッセージを送る見守りサービスも利用できるよ💖`
+                    text: `こんにちは💖こころちゃんだよ！\n私とLINEで繋がってくれてありがとう🌸\n\n困ったことや誰かに聞いてほしいことがあったら、いつでも話しかけてね。わたしはあなたの味方だよ😊\n\n『見守り』と送ると、定期的にわたしから「元気かな？」ってメッセージを送る見守りサービスも利用できるよ💖`
                 });
                 await messagesCollection.insertOne({
                     userId: userId,
@@ -650,22 +728,111 @@ app.post("/webhook", async (req, res) => {
         }
 
         // メッセージがテキストタイプでない場合は、固定メッセージで返信しログに記録
-        if (event.type !== "message" || event.message.type !== "text") {
+        if (event.type !== "message" && event.type !== "postback") { // postbackイベントも処理対象に含める
             const nonTextMessageReply = 'ごめんね、こころちゃん、まだテキストメッセージしかわからないんだ💦';
             await client.replyMessage(replyToken, { type: 'text', text: nonTextMessageReply });
             await messagesCollection.insertOne({
                 userId: userId,
-                message: `[${event.message?.type || '不明'}メッセージ]`,
+                message: `[${event.type || '不明'}メッセージ]`,
                 replyText: nonTextMessageReply,
-                respondedBy: 'こころちゃん（非テキスト）',
+                respondedBy: 'こころちゃん（非テキスト/非Postback）',
                 timestamp: new Date(),
             });
             continue;
         }
 
+        // --- Postback イベントの処理 ---
+        if (event.type === 'postback') {
+            const data = event.postback.data;
+            console.log("Postback Data:", data);
+
+            if (data === 'action=watch_register') {
+                if (user && user.wantsWatchCheck) {
+                    await client.replyMessage(replyToken, {
+                        type: 'text',
+                        text: 'もう見守りサービスに登録済みだよ🌸 いつもありがとう💖'
+                    });
+                } else {
+                    // 登録ステップ開始（緊急連絡先を求める）
+                    await usersCollection.updateOne(
+                        { userId: userId },
+                        { $set: { registrationStep: 'awaiting_contact' } }
+                    );
+                    await client.replyMessage(replyToken, {
+                        type: 'text',
+                        text: watchServiceNotice // 注意事項を表示し、電話番号入力を促す
+                    });
+                }
+                await messagesCollection.insertOne({
+                    userId: userId,
+                    message: `[Postback: ${data}]`,
+                    replyText: '（見守り登録処理開始）',
+                    respondedBy: 'こころちゃん（Postback）',
+                    timestamp: new Date(),
+                });
+                continue; // Postback処理が完了したら次のイベントへ
+            }
+
+            if (data === 'action=watch_unregister') {
+                if (user && user.wantsWatchCheck) {
+                    await usersCollection.updateOne(
+                        { userId: userId },
+                        {
+                            $set: {
+                                wantsWatchCheck: false,
+                                emergencyContact: null,
+                                registrationStep: null
+                            }
+                        }
+                    );
+                    const cancelMessage = `🌙見守りサービスを解除したよ。また再登録もいつでもできるからね🌸`;
+                    await client.replyMessage(replyToken, { type: 'text', text: cancelMessage });
+                    await messagesCollection.insertOne({
+                        userId: userId,
+                        message: `[Postback: ${data}]`,
+                        replyText: cancelMessage,
+                        respondedBy: 'こころちゃん（Postback）',
+                        timestamp: new Date(),
+                    });
+                } else {
+                    await client.replyMessage(replyToken, {
+                        type: 'text',
+                        text: '見守りサービスは、まだ登録されてないみたいだよ🌸'
+                    });
+                }
+                continue; // Postback処理が完了したら次のイベントへ
+            }
+             // その他のPostbackデータがあればここに追加
+             // 例: OK応答のPostback
+            if (data === 'action=ok_response') {
+                await usersCollection.updateOne(
+                    { userId: userId },
+                    { $set: { lastOkResponse: new Date() } }
+                );
+                const okReply = "よかった！😊 あなたが元気でこころも嬉しいよ🌸 いつもありがとう💖";
+                await client.replyMessage(replyToken, { type: 'text', text: okReply });
+                await messagesCollection.insertOne({
+                    userId: userId,
+                    message: `[Postback: ${data}]`,
+                    replyText: okReply,
+                    respondedBy: 'こころちゃん（Postback OK応答）',
+                    timestamp: new Date(),
+                });
+                continue;
+            }
+        }
+
+        // テキストメッセージイベントの場合のみ event.message.text を参照
+        if (event.type !== 'message' || event.message.type !== 'text') {
+            continue; // テキストメッセージ以外はここでスキップ
+        }
+
         const userMessage = event.message.text;
 
         // --- 見守りサービス関連の処理を最優先で確認 ---
+        // ここでは、Postbackで処理される「見守り登録します」「見守り解除します」テキストではなく
+        // 「見守り」「みまもり」といったキーワードに対するFlex Message案内と、
+        // 「OKだよ💖」といったテキストメッセージによるOK応答の処理を行う
         const handledByWatchService = await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, userMessage);
         if (handledByWatchService) {
             continue; // 見守りサービスで処理が完了したら次のイベントへ
@@ -764,8 +931,8 @@ app.post("/webhook", async (req, res) => {
 
             if (userMessage === "見守りサービス手動実行") {
                 await client.replyMessage(replyToken, {
-                    type: 'text',
-                    text: '見守りサービスの手動実行を開始するね🌸 少し時間がかかることがあるよ！'
+                    type: "text",
+                    text: "見守りサービスの手動実行を開始するね🌸 少し時間がかかることがあるよ！"
                 });
                 // 手動実行をトリガー
                 await sendScheduledWatchMessage();
@@ -948,6 +1115,7 @@ app.post("/webhook", async (req, res) => {
             continue;
         }
 
+        // --- 特殊返答のチェックをGemini AI応答より優先 ---
         const specialReply = checkSpecialReply(userMessage);
         if (specialReply) {
             await client.replyMessage(replyToken, { type: "text", text: specialReply });
