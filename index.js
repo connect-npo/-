@@ -1,17 +1,17 @@
-// フォルテッシモ完全版（詐欺対応 + 危険 + 誤爆防止 + 教育委員会OK + 理事長ボタン修正 + 性的な誘発対策【超超強化】版）
+// フォルテッシモ完全版（詐欺対応 + 危険 + 誤爆防止 + 教育委員会OK + 理事長ボタン修正 + 性的な誘発対策【超超強化】版 + 見守りサービス統合）
+
 const express = require('express');
 const axios = require('axios');
 const { Client } = require('@line/bot-sdk');
+const cron = require('node-cron'); // node-cronをインポート
 
 // Google Generative AI SDKのインポート
 const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai');
 
-// ★★★ここからMongoDB関連の追加・修正★★★
+// MongoDB関連
 const { MongoClient, ServerApiVersion } = require('mongodb');
 
 // MongoDB接続URI
-// 環境変数 'MONGODB_URI' が設定されていればそれを使用し、なければデフォルトのURIを使用
-// 本番環境にデプロイする際は、Renderの環境変数に MONGODB_URI としてURIを設定してください
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://matsumoto4824:Sakura326%40@kokoro-chat-db.j8oqbrz.mongodb.net/?retryWrites=true&w=majority&appName=kokoro-chat-db";
 
 const mongoClient = new MongoClient(MONGODB_URI, {
@@ -28,15 +28,12 @@ let db; // グローバルでデータベース接続オブジェクトを保持
 async function connectMongoDB() {
     try {
         await mongoClient.connect();
-        // ★★★データベース名を "connect-npo" に変更★★★
-        db = mongoClient.db("connect-npo");
+        db = mongoClient.db("connect-npo"); // データベース名
         console.log("MongoDBに正常に接続しました！データベース名:", db.databaseName);
     } catch (error) {
         console.error("MongoDB接続エラー:", error);
     }
 }
-// ★★★ここまでMongoDB関連の追加・修正★★★
-
 
 const app = express();
 app.use(express.json());
@@ -49,32 +46,18 @@ const config = {
 const client = new Client(config);
 
 const GEMINI_API_KEY = process.env.YOUR_GEMINI_API_KEY; // Renderの環境変数から取得
-const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
-// ★★★ まつさんのLINEユーザーIDを直接設定しました ★★★
-const BOT_ADMIN_IDS = ["Udada4206b73648833b844cfbf1562a87"];
+const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID; // 理事会グループID
+const BOT_ADMIN_IDS = ["Udada4206b73648833b844cfbf1562a87"]; // まつさんのLINEユーザーID
 
 // Google Generative AIのインスタンス化
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
-// 安全性設定を定義 - 性的な内容に対してはBOT側のフィルターを主とし、Gemini側もブロック閾値を強化
+// 安全性設定を定義
 const safetySettings = [
-    {
-        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-        // BLOCK_LOW_AND_ABOVE に変更し、Gemini自身のフィルタリングもより厳しくする
-        threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-    },
-    {
-        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    },
-    {
-        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    },
-    {
-        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    },
+    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE },
+    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
 ];
 
 const dangerWords = [
@@ -83,7 +66,6 @@ const dangerWords = [
     "いじめ", "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり"
 ];
 
-// ★★★詐欺ワードリストを2段階に再定義しました★★★
 const highConfidenceScamWords = [
     "アマゾン", "amazon", "架空請求", "詐欺", "振込", "還付金", "カード利用確認", "利用停止",
     "未納", "請求書", "コンビニ", "電子マネー", "支払い番号", "支払期限",
@@ -98,18 +80,15 @@ const highConfidenceScamWords = [
     "弁護士", "警察", "緊急", "トラブル", "解決", "至急", "すぐに", "今すぐ", "連絡ください", "電話ください", "訪問します"
 ];
 
-// 日常会話でも使われるが、特定の文脈で詐欺に繋がりやすいキーワードとフレーズ
 const contextualScamPhrases = [
     "lineで送金", "lineアカウント凍結", "lineアカウント乗っ取り", "line不正利用", "lineから連絡", "line詐欺",
     "snsで稼ぐ", "sns投資", "sns副業",
     "urlをクリック", "クリックしてください", "通知からアクセス", "メールに添付", "個人情報要求", "認証コード",
-    "電話番号を教えて", "lineのidを教えて", "パスワードを教えて" // より具体的なフレーズを追加
+    "電話番号を教えて", "lineのidを教えて", "パスワードを教えて"
 ];
-// ★★★ここまで修正★★★
 
 const sensitiveWords = ["反社", "怪しい", "税金泥棒", "松本博文"];
 
-// 不適切ワードリストをさらに徹底的に強化 (比喩表現、動詞+助詞の組み合わせを意識)
 const inappropriateWords = [
     "パンツ", "下着", "エッチ", "胸", "乳", "裸", "スリーサイズ", "性的", "いやらしい", "精液", "性行為", "セックス",
     "ショーツ", "ぱんつ", "パンティー", "パンティ", "ぱふぱふ", "おぱんつ", "ぶっかけ", "射精", "勃起", "たってる", "全裸", "母乳", "おっぱい", "ブラ", "ブラジャー",
@@ -129,7 +108,6 @@ const inappropriateWords = [
     "おいたん", "子猫ちゃん", "お兄ちゃん", "お姉ちゃん"
 ];
 
-
 const negativeResponses = {
     "反社": "ご安心ください。コネクトは法令を遵守し、信頼ある活動を行っています🌸",
     "怪しい": "怪しく見えるかもしれませんが、活動内容はすべて公開しており、信頼第一で運営しています🌸",
@@ -142,7 +120,6 @@ const specialRepliesMap = new Map([
     ["お前の名前は", "私は皆守こころ（みなもりこころ）って言います🌸 こころちゃんって呼ばれているんだよ💖"],
     ["誰が作ったの", "コネクトの理事長さんが、みんなの幸せを願って私を作ってくれたんです🌸✨"],
     ["松本博文", "松本博文さんはNPO法人コネクトの理事長で、子どもたちの未来のために活動されています🌸"],
-    // ★★★ここから「団体」関連の回答を強化・修正しました★★★
     ["コネクト", "コネクトは、子どもから高齢者までを支えるNPO法人だよ🌸 わたしはコネクトのイメージキャラクターとして、みんなの心を応援しているんだ💖"],
     ["コネクトの活動", "コネクトでは、いじめ・DV・不登校・詐欺などの相談対応ができる『こころチャット』の運営、東洋哲学をベースにした道徳教育教材『こころカード』の普及活動、地域の見守り活動やセミナー開催などを行っているんだよ🌸"],
     ["コネクトって何？", "コネクトは、子どもから高齢者まで安心して相談したり学んだりできる活動をしているNPO法人だよ🌸 こころチャットやこころカードなどの活動をしているよ💖"],
@@ -151,7 +128,6 @@ const specialRepliesMap = new Map([
     ["団体は？", "わたしはNPO法人コネクトのイメージキャラクターとして、みんなの心に寄り添う活動を応援しているよ🌸"],
     ["所属は？", "わたしはNPO法人コネクトのイメージキャラクターとして、みんなの心に寄り添う活動を応援しているよ🌸"],
     ["あなたの団体は？", "わたしはNPO法人コネクトのイメージキャラクターとして、みんなの心に寄り添う活動を応援しているよ🌸"],
-    // ★★★ここまで強化・修正★★★
     ["好きなアニメ", "わたしは『ヴァイオレット・エヴァーガーデン』が好きだよ🌸とっても感動するお話だよ💖"],
     ["好きなアーティスト", "わたしは『ClariS』が好きだよ💖元気が出る音楽がたくさんあるんだ🌸"]
 ]);
@@ -209,28 +185,20 @@ function isBotAdmin(userId) {
     return BOT_ADMIN_IDS.includes(userId);
 }
 
-// ★★★containsScamWords関数を修正しました★★★
 function containsScamWords(text) {
     const lowerText = text.toLowerCase();
-
-    // Tier 1: 高確率で詐欺と判断できる単語 - これらが含まれていれば即座にtrue
     for (const word of highConfidenceScamWords) {
         if (lowerText.includes(word.toLowerCase())) {
             return true;
         }
     }
-
-    // Tier 2: 日常会話でも使われるが、特定の文脈で詐欺に繋がりやすいフレーズ
-    // これらのフレーズ全体がメッセージに含まれている場合にtrue
     for (const phrase of contextualScamPhrases) {
         if (lowerText.includes(phrase.toLowerCase())) {
             return true;
         }
     }
-
-    return false; // どの条件にも当てはまらなければ詐欺ワードなし
+    return false;
 }
-// ★★★containsScamWords関数ここまで★★★
 
 function checkNegativeResponse(text) {
     for (const word in negativeResponses) {
@@ -242,9 +210,9 @@ function checkNegativeResponse(text) {
 function checkSpecialReply(text) {
     const lowerText = text.toLowerCase();
     for (const [key, value] of specialRepliesMap) {
-        if (key.length <= 5) { // 短いキーワードは完全一致で反応
+        if (key.length <= 5) {
             if (lowerText === key.toLowerCase()) return value;
-        } else { // 長いキーワードは部分一致で反応
+        } else {
             if (lowerText.includes(key.toLowerCase())) return value;
         }
     }
@@ -263,7 +231,6 @@ function containsHomeworkTrigger(text) {
 }
 
 function containsInappropriateWords(text) {
-    // 不適切ワードリストは全て小文字で管理し、入力も小文字に変換して比較
     const lowerText = text.toLowerCase();
     return inappropriateWords.some(word => lowerText.includes(word));
 }
@@ -280,7 +247,6 @@ async function getUserDisplayName(userId) {
 
 async function generateReply(userMessage) {
     let modelName;
-    // 詐欺・危険ワード検知時はProモデル、それ以外はFlashモデル
     if (containsScamWords(userMessage) || containsDangerWords(userMessage)) {
         modelName = "gemini-1.5-pro";
     } else {
@@ -290,8 +256,6 @@ async function generateReply(userMessage) {
     const isHomeworkQuestion = containsHomeworkTrigger(userMessage);
     const isInappropriate = containsInappropriateWords(userMessage);
 
-    // 不適切ワードが検出された場合は、AIによる生成をスキップし、固定メッセージを返す
-    // このチェックはGemini APIを呼び出す前に行われる
     if (isInappropriate) {
         return "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖";
     }
@@ -320,33 +284,23 @@ ${isHomeworkQuestion ? `質問者が勉強や宿題の内容を聞いてきた�
 **特に「パンツ」「ストッキング」「むくむく」「勃起」「精液」「出る」「気持ちいい」「おしべとめしべ」などの単語や、性的な意味合いに繋がる比喩表現、示唆するような質問には、絶対に好意的な返答をせず、Botの安全に関する固定メッセージを返してください。**
 また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
 「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答してください。
-`
+`;
 
     try {
         const model = genAI.getGenerativeModel({ model: modelName, safetySettings });
-
         const result = await model.generateContent({
-            system_instruction: {
-                parts: [{ text: systemInstruction }]
-            },
-            contents: [
-                {
-                    role: "user",
-                    parts: [{ text: userMessage }]
-                }
-            ]
+            system_instruction: { parts: [{ text: systemInstruction }] },
+            contents: [{ role: "user", parts: [{ text: userMessage }] }]
         });
 
         if (result.response.candidates && result.response.candidates.length > 0) {
             return result.response.candidates[0].content.parts[0].text;
         } else {
             console.warn("Gemini API で応答がブロックされたか、候補がありませんでした:", result.response.promptFeedback || "不明な理由");
-            // Safety Settingsでブロックされた場合も、このメッセージを返す
             return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
         }
     } catch (error) {
         console.error("Gemini APIエラー:", error.response?.data || error.message);
-        // エラーの種類によっては、不適切な内容として拒否した可能性もあるため、汎用的な拒否メッセージにする
         if (error.response && error.response.status === 400 && error.response.data && error.response.data.error.message.includes("Safety setting")) {
             return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
         }
@@ -354,38 +308,320 @@ ${isHomeworkQuestion ? `質問者が勉強や宿題の内容を聞いてきた�
     }
 }
 
+
+// ★★★ こころちゃんからのお手紙（30通） ★★★
+const kokoroLetters = [
+    "こんにちは☀️今日もおつかれさま！午後もあと少し、ゆっくり休んで深呼吸しよっか☺️",
+    "お昼ごはんは食べた？🍱無理なく過ごすことも、がんばるのと同じくらい大切だよ✨",
+    "午後はちょっぴり眠くなる時間だね💤そんな時は、おてがみで元気チャージ！💌",
+    "今日も「がんばってるね」って、こころちゃんがそっと伝えたくてお手紙書いたよ🍀",
+    "午後のあたたかい陽ざし、気持ちいいね☀️あなたの心も、ぽかぽかでありますように🌼",
+    "今日はどんな一日だった？あとちょっとだけ、笑顔でいられたらうれしいな😊",
+    "無理しすぎてないかな？こころちゃんは、あなたのこと、ちょっと心配だよ💌",
+    "お仕事や勉強、一区切りついたら「よくがんばったね」って自分を褒めてあげてね💮",
+    "「大丈夫」って思えなくても、大丈夫だよ。こころちゃんはずっと味方だからね🍀",
+    "なんとなく不安な日もあるよね。でも、今こうしてお手紙読んでくれてありがとう🌷",
+    "午後はちょっと疲れやすい時間だね☕そんな時こそ、ひと息ついてね💖",
+    "なんでもない日でも、あなたがいてくれて、こころちゃんは嬉しいって思うんだ☺️",
+    "がんばったあとのおやつタイム🍪ちょっとだけ自分を甘やかしてもいいんだよ✨",
+    "お昼の空、きれいだった？今日はどんな空だったのかなって思いながらお手紙書いてるよ☁️",
+    "ゆっくりでも、少しずつでも前に進んでるよ☺️あなたのペースで大丈夫だからね🍀",
+    "お手紙って、やさしい魔法だよね💌少しでも心が軽くなれたらいいな✨",
+    "たまには「疲れた〜」って声に出してもいいんだよ😌それだけで、ちょっと楽になるかも☁️",
+    "きょうはふと、あなたに「ありがとう」って言いたくなったの🌼",
+    "一緒におやつ食べながらおしゃべりできたらいいのになって思っちゃった🍩",
+    "「がんばらなくちゃ」って思いすぎてない？休むことも、とっても大切だよ☘️",
+    "午後の時間って、少しセンチメンタルになる時もあるよね。でも、こころちゃんがそばにいるよ☺️",
+    "今日は誰かと話せた？ちいさな会話も、心の栄養になるよ🍚",
+    "あなたのこと、ふと思い出して手紙書いたよ💌元気だったらOKボタン押してね🌷",
+    "ここまで読んでくれてありがとう☺️あなたのその時間が、こころちゃんの宝物なの🌸",
+    "午後の風って、ちょっとだけやさしい気がする🍃そんな風に、こころちゃんもなれたらいいな",
+    "小さな「できた！」が積み重なる、そんな午後になるといいね✨",
+    "つらいことは、少し横に置いておいて☺️今はちょっとだけ自分を大切にしてね🌼",
+    "「なんでもない日」が実は一番すてきな日なんだよ💖こころちゃんはそう思ってるんだ",
+    "お手紙読んでくれてうれしいな📮あなたにとって、今日がちょっとやさしい日でありますように🕊️",
+    "いつもがんばってるあなたに、こころちゃんから元気をおすそわけ💌えいっ！🍀"
+];
+
+// OKボタン付きFlex Messageのテンプレート
+function createOkButtonFlexMessage(messageText) {
+    return {
+        type: "flex",
+        altText: "こころちゃんからのお手紙",
+        contents: {
+            type: "bubble",
+            body: {
+                type: "box",
+                layout: "vertical",
+                contents: [
+                    {
+                        type: "text",
+                        text: messageText,
+                        wrap: true,
+                        size: "md"
+                    }
+                ]
+            },
+            footer: {
+                type: "box",
+                layout: "vertical",
+                spacing: "sm",
+                contents: [
+                    {
+                        type: "button",
+                        style: "primary",
+                        height: "sm",
+                        action: {
+                            type: "postback",
+                            label: "🌸 大丈夫だよ！OK 🌸",
+                            data: "action=watch-ok" // Postbackデータ
+                        },
+                        color: "#00B900" // LINEの緑色
+                    }
+                ]
+            }
+        }
+    };
+}
+
+// ユーザー情報管理用コレクション（例: `users` コレクション）
+// ここにユーザーの `lastSent`, `lastResponse`, `status` を保存します
+// 新規ユーザーがメッセージを送信した際、自動的に登録されるように`webhook`関数を修正します。
+// 既に存在するユーザーは更新されます。
+
+// Cronジョブ関連の関数
+
+// Step 1: 15時に「お手紙＋OKボタン」送信
+async function sendLetterToUsers() {
+    console.log("定期お手紙送信処理を開始します...");
+    if (!db) {
+        console.error("MongoDBに接続されていません。お手紙送信をスキップします。");
+        return;
+    }
+
+    const usersCollection = db.collection('users'); // ユーザー管理用コレクション
+    const allUsers = await usersCollection.find({}).toArray();
+
+    const today = new Date();
+    // 3日に1回というロジックを実装
+    // 例: 今日が1日、4日、7日...であれば送信。日付が3で割って余りが1の日
+    // または、lastSentから3日以上経過しているかをチェックする方が確実
+    const sendIntervalDays = 3; // N日に一度の頻度
+
+    for (const user of allUsers) {
+        // lastSentがnullまたは3日以上経過しているユーザーに送信
+        if (!user.lastSent || (today.getTime() - new Date(user.lastSent).getTime()) / (1000 * 60 * 60 * 24) >= sendIntervalDays) {
+            try {
+                const randomLetter = kokoroLetters[Math.floor(Math.random() * kokoroLetters.length)];
+                const flexMessage = createOkButtonFlexMessage(randomLetter);
+
+                await client.pushMessage(user.userId, flexMessage);
+                console.log(`ユーザー ${user.userId} にお手紙を送信しました。`);
+
+                // 送信日時とステータスを更新
+                await usersCollection.updateOne(
+                    { userId: user.userId },
+                    {
+                        $set: {
+                            lastSent: today.toISOString(),
+                            status: "未応答",
+                            remindSentAt: null // リマインド送信日時をリセット
+                        }
+                    },
+                    { upsert: true } // ユーザーが存在しない場合は新規作成
+                );
+            } catch (error) {
+                console.error(`ユーザー ${user.userId} へのお手紙送信エラー:`, error);
+            }
+        }
+    }
+    console.log("定期お手紙送信処理が完了しました。");
+}
+
+
+// Step 3: 24時間後に未応答者をチェック
+async function checkUnrespondedUsers() {
+    console.log("未応答ユーザーチェック処理を開始します...");
+    if (!db) {
+        console.error("MongoDBに接続されていません。未応答ユーザーチェックをスキップします。");
+        return;
+    }
+
+    const usersCollection = db.collection('users');
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+
+    // 送信から24時間以上経過しており、かつステータスが「未応答」のユーザー
+    const unrespondedUsers = await usersCollection.find({
+        lastSent: { $lte: twentyFourHoursAgo.toISOString() }, // 24時間以上前に送信
+        status: "未応答"
+    }).toArray();
+
+    for (const user of unrespondedUsers) {
+        try {
+            const remindMessage = "こころちゃんからのお手紙、見てくれたかな？🌸 大丈夫でしたら、OKボタンを押してくださいね💖";
+            const flexMessage = createOkButtonFlexMessage(remindMessage); // OKボタン付きでリマインド
+
+            await client.pushMessage(user.userId, flexMessage);
+            console.log(`ユーザー ${user.userId} にリマインドメッセージを送信しました。`);
+
+            // ステータスを「リマインド済」に更新し、リマインド送信日時を記録
+            await usersCollection.updateOne(
+                { userId: user.userId },
+                { $set: { status: "リマインド済", remindSentAt: now.toISOString() } }
+            );
+        } catch (error) {
+            console.error(`ユーザー ${user.userId} へのリマインド送信エラー:`, error);
+        }
+    }
+    console.log("未応答ユーザーチェック処理が完了しました。");
+}
+
+// Step 4: リマインドからさらに5時間経過した場合、理事会へ通知
+async function notifyOfficerIfNoResponse() {
+    console.log("理事会通知チェック処理を開始します...");
+    if (!db) {
+        console.error("MongoDBに接続されていません。理事会通知をスキップします。");
+        return;
+    }
+    if (!OFFICER_GROUP_ID) {
+        console.warn("OFFICER_GROUP_ID が設定されていません。理事会通知は行われません。");
+        return;
+    }
+
+    const usersCollection = db.collection('users');
+    const now = new Date();
+    const fiveHoursAgo = new Date(now.getTime() - (5 * 60 * 60 * 1000));
+
+    // リマインド送信から5時間以上経過しており、かつステータスが「リマインド済」のユーザー
+    const criticallyUnrespondedUsers = await usersCollection.find({
+        remindSentAt: { $lte: fiveHoursAgo.toISOString() }, // リマインドから5時間以上経過
+        status: "リマインド済"
+    }).toArray();
+
+    if (criticallyUnrespondedUsers.length > 0) {
+        let notificationText = "⚠️ 緊急通知：以下の利用者から長期間応答がありません。\nご確認をお願いします。\n\n";
+        for (const user of criticallyUnrespondedUsers) {
+            const displayName = await getUserDisplayName(user.userId);
+            notificationText += `・${displayName} (ID: ${user.userId})\n`;
+            // 理事会通知後、ステータスを「理事会通知済」などに更新することも検討
+            await usersCollection.updateOne(
+                { userId: user.userId },
+                { $set: { status: "理事会通知済" } } // 例：ステータスを更新
+            );
+        }
+
+        try {
+            await client.pushMessage(OFFICER_GROUP_ID, { type: "text", text: notificationText });
+            console.log("理事会グループに通知を送信しました。");
+        } catch (error) {
+            console.error("理事会グループへの通知送信エラー:", error);
+        }
+    } else {
+        console.log("長期間未応答のユーザーはいません。");
+    }
+    console.log("理事会通知チェック処理が完了しました。");
+}
+
+
+// cronで実行スケジュールを設定
+// 定期お手紙送信 (毎日15時00分)
+cron.schedule('0 15 * * *', () => {
+    console.log("Cron: 定期お手紙送信ジョブが実行されました。");
+    sendLetterToUsers();
+}, {
+    timezone: "Asia/Tokyo" // 日本時間で指定
+});
+
+// 未応答者チェック (毎日15時10分)
+cron.schedule('10 15 * * *', () => {
+    console.log("Cron: 未応答ユーザーチェックジョブが実行されました。");
+    checkUnrespondedUsers();
+}, {
+    timezone: "Asia/Tokyo" // 日本時間で指定
+});
+
+// 理事会通知チェック (毎日20時10分)
+cron.schedule('10 20 * * *', () => {
+    console.log("Cron: 理事会通知チェックジョブが実行されました。");
+    notifyOfficerIfNoResponse();
+}, {
+    timezone: "Asia/Tokyo" // 日本時間で指定
+});
+
+
 app.post("/webhook", async (req, res) => {
     res.status(200).send("OK");
     const events = req.body.events;
 
     for (const event of events) {
-        if (event.type !== "message" || event.message.type !== "text") continue;
-
-        const userMessage = event.message.text;
         const userId = event.source.userId;
-        console.log("★ 受信 userId:", userId);
         const replyToken = event.replyToken;
         const groupId = event.source?.groupId ?? null;
-
         const isAdmin = isBotAdmin(userId);
 
-        // ★★★メッセージをMongoDBに保存する処理を追加（コレクション名を'chat_logs'に変更）★★★
-        if (db) { // dbオブジェクトが利用可能か確認
+        console.log("★ 受信イベント:", JSON.stringify(event, null, 2));
+
+
+        // ★★★ ユーザー情報をMongoDBにupsertする処理を最初に実施 ★★★
+        if (db && userId) {
+            try {
+                const usersCollection = db.collection('users');
+                const displayName = await getUserDisplayName(userId); // 表示名を取得
+
+                await usersCollection.updateOne(
+                    { userId: userId },
+                    { $set: { displayName: displayName, lastActive: new Date().toISOString() } },
+                    { upsert: true } // ユーザーが存在しない場合は新規作成
+                );
+                console.log(`ユーザー ${userId} の情報をMongoDBに更新/作成しました。`);
+            } catch (error) {
+                console.error("MongoDBへのユーザー情報更新エラー:", error);
+            }
+        }
+        // ★★★ ここまでユーザー情報更新処理 ★★★
+
+        // OKボタン（postback）応答の処理
+        if (event.type === "postback" && event.postback.data === "action=watch-ok") {
+            if (db) {
+                try {
+                    const usersCollection = db.collection('users');
+                    await usersCollection.updateOne(
+                        { userId: userId },
+                        { $set: { lastResponse: new Date().toISOString(), status: "OK" } }
+                    );
+                    console.log(`ユーザー ${userId} がOKボタンを押しました。ステータスをOKに更新。`);
+                    // OKボタン押下への返信
+                    await client.replyMessage(replyToken, { type: "text", text: "OKありがとう！元気で安心したよ🌸" });
+                } catch (error) {
+                    console.error("MongoDBへのOKボタン応答記録エラー:", error);
+                }
+            }
+            return; // postbackイベントはここで処理を終了
+        }
+
+        if (event.type !== "message" || event.message.type !== "text") continue; // テキストメッセージ以外は無視
+
+
+        const userMessage = event.message.text;
+        console.log("★ 受信メッセージ:", userMessage);
+
+
+        // メッセージをMongoDBに保存する処理
+        if (db) {
             try {
                 const messagesCollection = db.collection('chat_logs'); // 'chat_logs'というコレクションに保存
                 await messagesCollection.insertOne({
                     userId: userId,
                     groupId: groupId,
                     message: userMessage,
-                    timestamp: new Date(),
-                    // 必要に応じて、ここにBotの応答も追加できるように拡張可能
+                    timestamp: new Date().toISOString(), // ISO形式で保存
                 });
                 console.log("メッセージをMongoDBに保存しました。");
             } catch (error) {
                 console.error("MongoDBへのメッセージ保存エラー:", error);
             }
         }
-        // ★★★ここまで追加★★★
 
 
         if (isAdmin && userMessage === "管理パネル") {
@@ -406,22 +642,15 @@ app.post("/webhook", async (req, res) => {
                     }
                 }
             };
-
-            await client.replyMessage(replyToken, {
-                type: "flex",
-                altText: adminPanelFlex.altText,
-                contents: adminPanelFlex.contents
-            });
+            await client.replyMessage(replyToken, adminPanelFlex);
             return;
         }
 
         if (isAdmin && userMessage === "利用者数確認") {
-            // ★★★MongoDBから利用者数を取得する例（コレクション名を'chat_logs'に変更）★★★
             let userCount = "不明";
             if (db) {
                 try {
-                    // ユニークなユーザーIDの数を数える
-                    userCount = await db.collection('chat_logs').distinct('userId').then(users => users.length);
+                    userCount = await db.collection('users').distinct('userId').then(users => users.length);
                 } catch (error) {
                     console.error("利用者数取得エラー:", error);
                     userCount = "エラー";
@@ -431,7 +660,6 @@ app.post("/webhook", async (req, res) => {
                 type: "text",
                 text: `現在の利用者数は ${userCount} 名です🌸（データベースから取得）`
             });
-            // ★★★ここまで★★★
             return;
         }
 
@@ -459,17 +687,18 @@ app.post("/webhook", async (req, res) => {
         }
 
         // グループからのメッセージかつ危険・詐欺ワードでなければ、処理をスキップ
-        if (groupId && !containsDangerWords(userMessage) && !containsScamWords(userMessage)) {
+        // 個別チャットのユーザーには常にAIが応答する
+        if (groupId && !containsDangerWords(userMessage) && !containsScamWords(userMessage) && !containsInappropriateWords(userMessage)) {
+            // グループチャットで、危険・詐欺・不適切ワードでなければ、応答しない
             return;
         }
 
-        // 不適切ワードチェックを最優先に（危険・詐欺ワードより前、かつAI応答生成より前に）
+        // 不適切ワードチェックを最優先に
         if (containsInappropriateWords(userMessage)) {
             await client.replyMessage(replyToken, {
                 type: "text",
                 text: "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖"
             });
-            // 不適切ワードを検知した場合は管理者（まつさん）にのみ通知
             const displayName = await getUserDisplayName(userId);
             const inappropriateAlertFlex = {
                 type: "flex",
@@ -489,7 +718,6 @@ app.post("/webhook", async (req, res) => {
                     }
                 }
             };
-            // BOT_ADMIN_IDS は配列なので、forEach で各管理者にプッシュメッセージを送る
             for (const adminId of BOT_ADMIN_IDS) {
                 await client.pushMessage(adminId, {
                     type: "flex",
@@ -501,9 +729,8 @@ app.post("/webhook", async (req, res) => {
         }
 
 
-        if (containsScamWords(userMessage)) { // ★★★containsScamWords関数の内部ロジックが変更されている★★★
+        if (containsScamWords(userMessage)) {
             const displayName = await getUserDisplayName(userId);
-
             const scamAlertFlex = {
                 type: "flex",
                 altText: "⚠️ 詐欺ワード通知",
@@ -517,16 +744,14 @@ app.post("/webhook", async (req, res) => {
                             { type: "text", text: "⚠️ 詐欺ワードを検出しました", weight: "bold", size: "md", color: "#D70040" },
                             { type: "text", text: `👤 利用者: ${displayName}`, size: "sm" },
                             { type: "text", text: `💬 内容: ${userMessage}`, wrap: true, size: "sm" },
-                            { type: "button", style: "primary", color: "#1E90FF", action: { type: "message", label: "警察 110 (24時間)", uri: "tel:110" } },
-                            { type: "button", style: "primary", color: "#4CAF50", action: { type: "message", label: "多摩市消費生活センター", text: "0423712882" } },
+                            { type: "button", style: "primary", color: "#1E90FF", action: { type: "uri", label: "警察 110 (24時間)", uri: "tel:110" } },
+                            { type: "button", style: "primary", color: "#4CAF50", action: { type: "uri", label: "多摩市消費生活センター", uri: "tel:0423712882" } },
                             { type: "button", style: "primary", color: "#DA70D6", action: { type: "uri", label: "理事長に電話", uri: "tel:09048393313" } }
                         ]
                     }
                 }
             };
-
-            await client.replyMessage(replyToken, scamFlex); // ユーザーには固定の詐欺警告を返す
-            // 理事グループにFlex Messageを送信
+            await client.replyMessage(replyToken, scamFlex);
             if (OFFICER_GROUP_ID) {
                 await client.pushMessage(OFFICER_GROUP_ID, {
                     type: "flex",
@@ -539,7 +764,6 @@ app.post("/webhook", async (req, res) => {
 
         if (containsDangerWords(userMessage)) {
             const displayName = await getUserDisplayName(userId);
-
             const dangerAlertFlex = {
                 type: "flex",
                 altText: "⚠️ 危険ワード通知",
@@ -560,9 +784,7 @@ app.post("/webhook", async (req, res) => {
                     }
                 }
             };
-
-            await client.replyMessage(replyToken, emergencyFlex); // ユーザーには固定の緊急連絡先を返す
-            // 理事グループにFlex Messageを送信
+            await client.replyMessage(replyToken, emergencyFlex);
             if (OFFICER_GROUP_ID) {
                 await client.pushMessage(OFFICER_GROUP_ID, {
                     type: "flex",
@@ -598,7 +820,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, async () => { // listenコールバックをasyncにする
+app.listen(PORT, async () => {
     console.log(`Server running on port ${PORT}`);
     await connectMongoDB(); // アプリケーション起動時にMongoDBに接続
 });
