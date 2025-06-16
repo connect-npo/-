@@ -287,7 +287,8 @@ function containsInappropriateWords(text) {
     return inappropriateWords.some(word => lowerText.includes(word));
 }
 
-// ★追加：ログを保存すべきか判定する関数 (危険ログの判定も含む)
+// ★修正：ログを保存すべきか判定する関数 (危険ログの判定も含む)
+// この関数は、ログを保存するべきか、およびフラグ付きメッセージとして扱うかを判定します。
 function shouldLogMessage(text) {
     return containsDangerWords(text) || containsScamWords(text) || containsInappropriateWords(text);
 }
@@ -343,6 +344,8 @@ async function generateReply(userMessage) {
     const isInappropriate = containsInappropriateWords(userMessage);
 
     if (isInappropriate) {
+        // 不適切ワードが検出された場合は、AIに生成させずに固定メッセージを返す
+        // これはsafetySettingsと組み合わせて、二重のガードとする
         return "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖";
     }
 
@@ -915,10 +918,11 @@ app.post('/webhook', async (req, res) => {
                     wantsWatchCheck: false,
                     emergencyContact: null,
                     registrationStep: null,
-                    scheduledMessageSent: false, // 見守りメッセージ初回送信フラグ
-                    firstReminderSent: false,   // 1回目リマインダー送信フラグ
-                    secondReminderSent: false,  // 2回目リマインダー送信フラグ
-                    lastOkResponse: new Date() // 最終OK応答日時を初期化
+                    scheduledMessageSent: false,
+                    firstReminderSent: false,
+                    secondReminderSent: false,
+                    lastOkResponse: new Date(),
+                    flaggedMessageCount: 0 // 新規ユーザーにカウンターを初期化
                 };
                 await usersCollection.insertOne(user);
                 console.log(`新規ユーザー登録: ${user.displayName} (${userId})`);
@@ -928,6 +932,14 @@ app.post('/webhook', async (req, res) => {
                     { userId: userId },
                     { $set: { lastMessageAt: new Date() } }
                 );
+                // 既存ユーザーでflaggedMessageCountが未定義の場合に初期化 (初回デプロイ時の対応)
+                if (user.flaggedMessageCount === undefined) {
+                    await usersCollection.updateOne(
+                        { userId: userId },
+                        { $set: { flaggedMessageCount: 0 } }
+                    );
+                    user.flaggedMessageCount = 0; // メモリ上のuserオブジェクトも更新
+                }
             }
 
             // 見守りサービス関連の処理を優先
@@ -940,19 +952,24 @@ app.post('/webhook', async (req, res) => {
             let replyText;
             let respondedBy = 'こころちゃん（AI）';
             let logType = 'normal';
+            let isFlaggedMessage = false; // フラグ付きメッセージであるかを示す新しいフラグ
 
             if (containsDangerWords(userMessage)) {
                 replyText = emergencyFlex;
                 respondedBy = 'こころちゃん（緊急対応）';
                 logType = 'danger_detected';
+                isFlaggedMessage = true;
             } else if (containsScamWords(userMessage) || contextualScamPhrases.some(phrase => userMessage.toLowerCase().includes(phrase.toLowerCase()))) {
                 replyText = scamFlex;
                 respondedBy = 'こころちゃん（詐欺対応）';
                 logType = 'scam_detected';
+                isFlaggedMessage = true;
             } else if (containsInappropriateWords(userMessage)) {
-                replyText = { type: 'text', text: await generateReply(userMessage) }; // 不適切ワード用の固定返信
+                // 不適切ワードに対するAIの返答はgenerateReply内で制御されるため、ここでも呼び出す
+                replyText = { type: 'text', text: await generateReply(userMessage) };
                 respondedBy = 'こころちゃん（不適切ワード）';
                 logType = 'inappropriate_detected';
+                isFlaggedMessage = true;
             } else {
                 // 組織に関する問い合わせをAIに渡す前にチェック
                 if (isOrganizationInquiry(userMessage)) {
@@ -979,8 +996,27 @@ app.post('/webhook', async (req, res) => {
                     await client.replyMessage(event.replyToken, replyText);
                 }
 
-                // ログ保存 (危険な発言があった場合のみ)
-                if (shouldLogMessage(userMessage)) {
+                // フラグ付きメッセージの場合のみ、カウンターを更新し通知を送信
+                if (isFlaggedMessage) {
+                    const updateResult = await usersCollection.findOneAndUpdate(
+                        { userId: userId },
+                        { $inc: { flaggedMessageCount: 1 } },
+                        { returnDocument: 'after' } // 更新後のドキュメントを返す
+                    );
+
+                    const updatedUser = updateResult.value;
+                    const currentFlaggedCount = updatedUser ? updatedUser.flaggedMessageCount : 0; // updateResult.valueがnullの場合に備える
+                    const userDisplayName = updatedUser ? updatedUser.displayName : "不明なユーザー";
+
+                    // 2回目のフラグ付きメッセージで、かつOWNER_USER_IDが設定されている場合のみ通知
+                    // `currentFlaggedCount === 2` で2回目のみ通知、`currentFlaggedCount > 1` で2回目以降毎回通知
+                    if (currentFlaggedCount === 2 && OWNER_USER_ID) {
+                        const notificationMessage = `🚨 緊急通知：ユーザー「${userDisplayName}」（ID: ${userId}）が2回目のフラグ付き発言（${logType}）を行いました。\n\n内容: 「${userMessage}」`;
+                        await client.pushMessage(OWNER_USER_ID, { type: 'text', text: notificationMessage });
+                        console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に2回目フラグ付き発言通知を送信しました（ユーザー: ${userId}）`);
+                    }
+
+                    // フラグ付きメッセージをDBに記録
                     await messagesCollection.insertOne({
                         userId: userId,
                         message: userMessage,
@@ -991,7 +1027,7 @@ app.post('/webhook', async (req, res) => {
                     });
                 }
             } catch (error) {
-                console.error("メッセージ返信中にエラーが発生しました:", error.message);
+                console.error("メッセージ返信中またはログ記録・通知中にエラーが発生しました:", error.message);
                 // エラー発生時も成功を返してLINE側の再送を防ぐ
             }
         }
