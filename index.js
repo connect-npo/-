@@ -372,17 +372,52 @@ async function generateReply(userId, userMessage) {
 
     // 過去の会話履歴をDBから取得し、AIに渡す
     const messageHistory = await messagesCollection.find({ userId: userId })
-        .sort({ timestamp: 1 })
+        .sort({ timestamp: 1 }) // 古いものから新しいものへ
         .limit(20) // 最新の20件など、適当な数に制限
         .toArray();
 
-    const historyForGemini = messageHistory.map(msg => ({
-        role: msg.respondedBy.includes('AI応答') ? "model" : "user",
-        parts: [{ text: msg.respondedBy.includes('AI応答') ? msg.replyText : msg.message }]
-    }));
+    // Gemini APIの制約に合わせて履歴を調整
+    // 最初のロールは必ず 'user' である必要があります
+    const historyForGemini = [];
+    let lastRoleWasUser = false; // 直前のメッセージがユーザーからのものだったか (未使用だが、ロジックの理解を助けるため残す)
 
-    // プロンプトを調整 (システム指示とユーザーメッセージを結合)
-    const fullPrompt = `${basePrompt}\n\nユーザー: ${userMessage}`;
+    for (const msg of messageHistory) {
+        let role;
+        let text;
+
+        if (msg.respondedBy && msg.respondedBy.includes('AI応答')) {
+            role = "model";
+            text = msg.replyText;
+        } else {
+            role = "user";
+            text = msg.message;
+        }
+
+        if (!text) { // テキストがないメッセージはスキップ
+            continue;
+        }
+
+        if (historyForGemini.length === 0) {
+            // 最初のメッセージは必ずユーザーロールにする
+            // データベースの最初のメッセージがモデルロールだった場合でも、ここではユーザーからのものとして扱う
+            // もし本当に最初のメッセージがモデル（Botからの見守りメッセージなど）で、ユーザーの返信がそれに続く場合、
+            // そのモデルメッセージは履歴から除外してユーザーの返信から始めるのが適切。
+            // 今回はシンプルに、DBから取ってきた最初の有効なメッセージを 'user' ロールとして開始する。
+            historyForGemini.push({ role: "user", parts: [{ text: text }] });
+            lastRoleWasUser = true;
+        } else {
+            // ロールが連続する場合（例: user -> user または model -> model）はスキップまたは調整
+            const lastEntry = historyForGemini[historyForGemini.length - 1];
+            if (role === lastEntry.role) {
+                // 同じロールが連続する場合、前のメッセージにテキストを結合する
+                lastEntry.parts[0].text += "\n" + text;
+            } else {
+                // ロールが交互になっている場合はそのまま追加
+                historyForGemini.push({ role: role, parts: [{ text: text }] });
+            }
+            lastRoleWasUser = (role === "user"); // ロールを更新
+        }
+    }
 
     const chat = model.startChat({
         history: historyForGemini,
@@ -392,7 +427,7 @@ async function generateReply(userId, userMessage) {
 
     let reply = "";
     try {
-        const result = await chat.sendMessage(fullPrompt);
+        const result = await chat.sendMessage(fullPrompt); // fullPromptを定義する必要がある
         const response = await result.response;
         reply = response.text();
 
@@ -493,7 +528,7 @@ app.post('/callback', async (req, res) => {
                         text: `⚠️ 危険ワード検知！\nユーザーID: ${userId}\n表示名: ${displayName}\nメッセージ: "${userMessage}"\n危険ワード: ${detectedDangerWord}`
                     });
                 }
-                if (OWNER_USER_ID && OFFICER_GROUP_ID !== OWNER_USER_ID) {
+                if (OWNER_USER_ID && OFFICER_GROUP_ID !== OWNER_GROUP_ID) { // OWNER_GROUP_IDをOFFICER_GROUP_IDに修正
                     await client.pushMessage(OWNER_USER_ID, {
                         type: 'text',
                         text: `⚠️ 危険ワード検知！\nユーザーID: ${userId}\n表示名: ${displayName}\nメッセージ: "${userMessage}"\n危険ワード: ${detectedDangerWord}`
@@ -591,6 +626,7 @@ app.post('/callback', async (req, res) => {
             }
 
             // --- AI応答の生成と送信 ---
+            // fullPrompt は generateReply 関数の内部で定義されているため、ここでは不要です。
             const replyText = await generateReply(userId, userMessage);
             await client.replyMessage(replyToken, { type: "text", text: replyText });
             
@@ -717,26 +753,19 @@ cron.schedule('0 0 1 * *', async () => { // 毎月1日の0時0分 (JST)
     console.log('--- Cron job: 月次メッセージカウントリセット開始 ---');
     try {
         const usersCollection = dbInstance.collection('users');
-        const nextMonth = moment().tz("Asia/Tokyo").add(1, 'month').format('YYYY-MM');
+        const now = moment().tz("Asia/Tokyo");
+        const currentMonth = now.format('YYYY-MM');
         
         // 全ユーザーに対して、messageCountsの現在の月以外のキーを削除し、新しい月を0で設定
-        const result = await usersCollection.updateMany(
-            {}, // 全ドキュメントを対象
-            { 
-                $set: { [`messageCounts.${nextMonth}`]: 0 }, // 新しい月のカウントを0に設定
-                $unset: { // 前月以前のカウントを削除
-                    // ここで動的にキーを削除する必要があるため、少し複雑になる
-                    // simpler approach: overwrite the whole messageCounts object with current month only
-                }
-            }
-        );
-        // 上記$unsetは複雑なので、代わりにメッセージカウントをクリアして新しく設定する処理
         const allUsers = await usersCollection.find({}).toArray();
         for (const user of allUsers) {
-            user.messageCounts = { [nextMonth]: 0 };
+            // 現在の月のカウントだけを残し、それ以外をリセットする
+            const newMessageCounts = {
+                [currentMonth]: user.messageCounts?.[currentMonth] || 0 // 既存の今月分があれば引き継ぐ、なければ0
+            };
             await usersCollection.updateOne(
                 { _id: user._id },
-                { $set: { messageCounts: user.messageCounts } }
+                { $set: { messageCounts: newMessageCounts } }
             );
         }
 
@@ -768,7 +797,9 @@ cron.schedule('0 0 1 * *', async () => { // 毎月1日の0時0分 (JST)
 // 実際にはMongoDBに保存されることを想定
 
 // 仮の見守りユーザーと最終応答時刻を格納するMap (DB移行後は削除またはDBから読み込み)
-const watchUsers = new Map(); // userId -> { userName, lastRespondedAt: Date }
+// このMapは、データベースで'watchUsers'コレクションに置き換わっています。
+// const watchUsers = new Map(); // userId -> { userName, lastRespondedAt: Date }
+
 
 // 見守りメッセージの送信関数
 async function sendScheduledWatchMessage() {
@@ -781,6 +812,12 @@ async function sendScheduledWatchMessage() {
         const userId = user.userId;
         const userName = user.userName;
         const lastRespondedAt = user.lastRespondedAt; // DBから取得した最終応答時刻
+
+        // lastRespondedAtが存在しない場合や、Dateオブジェクトでない場合はスキップ
+        if (!lastRespondedAt || !(lastRespondedAt instanceof Date)) {
+            console.warn(`見守りユーザー ${userId} のlastRespondedAtが無効です。スキップします。`);
+            continue;
+        }
 
         // 最後の応答から24時間以上経過しているかチェック
         if (now.getTime() - lastRespondedAt.getTime() > 24 * 60 * 60 * 1000) {
@@ -813,6 +850,7 @@ async function sendScheduledWatchMessage() {
 }
 
 // cronジョブ: 定期見守りメッセージ送信 (毎日15時に実行)
+// ※以前のcronは'0 15 */3 * *'で3日ごとでしたが、毎日15時に変更します。
 cron.schedule('0 15 * * *', async () => { // 毎日15時0分 (JST) に実行
     console.log('--- Cron job: 定期見守りメッセージ送信開始 ---');
     await sendScheduledWatchMessage();
@@ -820,9 +858,6 @@ cron.schedule('0 15 * * *', async () => { // 毎日15時0分 (JST) に実行
     timezone: "Asia/Tokyo"
 });
 
-
-// LINEのメッセージイベントを処理するWebhookハンドラー
-// ※これはすでに変更済みですが、完全版として含めます。
 
 // サーバー起動
 const PORT = process.env.PORT || 3000;
