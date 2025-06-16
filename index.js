@@ -23,13 +23,9 @@ const client = new Client(config);
 
 const GEMINI_API_KEY = process.env.YOUR_GEMINI_API_KEY;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
-// OWNER_USER_IDを追加
 const OWNER_USER_ID = process.env.OWNER_USER_ID;
 const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? process.env.BOT_ADMIN_IDS.split(',') : [];
 
-// BOT_ADMIN_IDSにOWNER_USER_IDとOFFICER_GROUP_IDを合体させ、重複を排除
-// ただし、OFFICER_GROUP_IDはグループIDなので、BOT_ADMIN_IDS（個人ID）とは別に扱うべきです。
-// ここではBOT_ADMIN_IDSは個別の管理者IDとして扱い、OWNER_USER_IDを追加します。
 if (OWNER_USER_ID && !BOT_ADMIN_IDS.includes(OWNER_USER_ID)) {
     BOT_ADMIN_IDS.push(OWNER_USER_ID);
 }
@@ -98,7 +94,6 @@ const dangerWords = [
 const highConfidenceScamWords = [
     "アマゾン", "amazon", "架空請求", "詐欺", "振込", "還付金", "カード利用確認", "利用停止",
     "未納", "請求書", "コンビニ", "電子マネー", "支払い番号", "支払期限",
-    // 「サギ」「さぎ」は前回削除済み。ここに変更なし。
     "息子拘留", "保釈金", "拘留", "逮捕", "電話番号お知らせください",
     "自宅に取り", "自宅に伺い", "自宅訪問", "自宅に現金", "自宅を教え",
     "現金書留", "コンビニ払い", "ギフトカード", "プリペイドカード", "未払い", "支払って", "振込先",
@@ -258,7 +253,7 @@ const watchServiceGuideFlex = {
     }
 };
 
-// ★追加：IDがユーザーID（Uで始まる）かどうかを判定する関数
+// IDがユーザーID（Uで始まる）かどうかを判定する関数
 function isUserId(id) {
     return id && id.startsWith("U");
 }
@@ -281,15 +276,15 @@ function containsScamWords(text) {
     return false;
 }
 
-// ★追加：不適切ワードが含まれるかをチェックする関数
+// 不適切ワードが含まれるかをチェックする関数
 function containsInappropriateWords(text) {
     const lowerText = text.toLowerCase();
     return inappropriateWords.some(word => lowerText.includes(word));
 }
 
-// ★修正：ログを保存すべきか判定する関数 (危険ログの判定も含む)
-// この関数は、ログを保存するべきか、およびフラグ付きメッセージとして扱うかを判定します。
+// ログを保存すべきか判定する関数 (危険ログの判定も含む)
 function shouldLogMessage(text) {
+    // 永久停止中のメッセージはログを記録するが、この関数で特別な判定は不要（ハンドラで直接ログするため）
     return containsDangerWords(text) || containsScamWords(text) || containsInappropriateWords(text);
 }
 
@@ -300,8 +295,6 @@ function shouldLogMessage(text) {
  */
 const isOrganizationInquiry = (text) => {
     const lower = text.toLowerCase();
-    // 「団体」「コネクト」「NPO」「活動」「どんな」といったキーワードを組み合わせる
-    // より正確な検出のために、スペース区切りや前後の単語も考慮する
     return (lower.includes("コネクト") || lower.includes("connect")) && (lower.includes("団体") || lower.includes("npo") || lower.includes("活動") || lower.includes("どんな"));
 };
 
@@ -514,9 +507,6 @@ const watchServiceNotice = `
 （例：09012345678）
 `;
 
-// handleWatchServiceRegistration関数内のmessagesCollection.insertOne()の呼び出し箇所は、
-// 見守りサービス登録・解除・OK応答のログなので、そのまま残します。
-// これらのログはサービス運用上、常に必要と考えられます。
 async function handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, userMessage) {
     const user = await usersCollection.findOne({ userId: userId });
 
@@ -529,7 +519,6 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
             replyText: '（見守りサービス案内Flex表示）',
             respondedBy: 'こころちゃん（見守り案内）',
             timestamp: new Date(),
-            // ★追加：ログタイプ
             logType: 'watch_service_interaction'
         });
         return true;
@@ -584,7 +573,6 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
                 replyText: successMessage,
                 respondedBy: 'こころちゃん（見守り登録）',
                 timestamp: new Date(),
-                // ★追加：ログタイプ
                 logType: 'watch_service_registration'
             });
             return true;
@@ -617,7 +605,6 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
                 replyText: cancelMessage,
                 respondedBy: 'こころちゃん（見守り解除）',
                 timestamp: new Date(),
-                // ★追加：ログタイプ
                 logType: 'watch_service_unregistration'
             });
             return true;
@@ -643,7 +630,6 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
             replyText: okReply,
             respondedBy: 'こころちゃん（OK応答）',
             timestamp: new Date(),
-            // ★追加：ログタイプ
             logType: 'watch_service_ok_response'
         });
         return true;
@@ -825,10 +811,6 @@ async function sendScheduledWatchMessage() {
 
             // オフィサーグループ（OFFICER_GROUP_ID）にプッシュ通知
             if (OFFICER_GROUP_ID) {
-                // グループIDへのpushMessageは、グループのタイプがroom/groupによって異なる可能性があります。
-                // ここでは一般的なpushMessageを使用しますが、もしグループで受け取れない場合は
-                // message.type === 'group' での応答など、LINE Messaging APIのドキュメントを
-                // ご確認いただくことを推奨します。
                 await client.pushMessage(OFFICER_GROUP_ID, { type: 'text', text: emergencyMessage });
                 console.log(`🚨 オフィサーグループへ緊急通知を送信しました（ユーザー: ${user.userId}）`);
             }
@@ -853,12 +835,30 @@ async function sendScheduledWatchMessage() {
     console.log('✅ 定期見守りメッセージ送信処理を終了しました。');
 }
 
+// 毎日午前4時に全ユーザーの flaggedMessageCount をリセットするCronジョブ
+cron.schedule('0 4 * * *', async () => { // JST 4:00
+    const db = await connectToMongoDB();
+    if (!db) {
+        console.error('MongoDB接続失敗: flaggedMessageCountのリセットができません。');
+        return;
+    }
+    const usersCollection = db.collection("users");
+    // ★修正: isPermanentlyLocked が true のユーザーはリセット対象外
+    await usersCollection.updateMany(
+        { isPermanentlyLocked: { $ne: true } }, // 永久ロックされていないユーザーのみを対象
+        { $set: { flaggedMessageCount: 0, isAccountSuspended: false, suspensionReason: null } }
+    );
+    console.log("✅ 毎日 1 回、永久ロックされていない全ユーザーの flaggedMessageCount と日次サスペンド状態をリセットしました。");
+}, {
+    scheduled: true,
+    timezone: "Asia/Tokyo"
+});
+
 // 毎日午後3時に実行 (日本時間 JST = UTC+9)
 // CronのスケジュールはUTCで解釈されるため、JSTで午後3時 (15時) はUTCで午前6時 (6時) に相当します。
-// '0 6 * * *' は 毎時0分、毎日6時 (UTC) に実行。
-cron.schedule('0 6 * * *', sendScheduledWatchMessage, {
+cron.schedule('0 15 * * *', sendScheduledWatchMessage, { // JST 15:00
     scheduled: true,
-    timezone: "Asia/Tokyo" // 明示的にタイムゾーンを指定
+    timezone: "Asia/Tokyo"
 });
 
 // Postbackイベントハンドラ
@@ -878,11 +878,30 @@ app.post('/webhook', async (req, res) => {
             const usersCollection = db.collection("users");
             const messagesCollection = db.collection("messages");
 
+            // ★修正: アカウントが恒久的にロックされている場合のPostback処理もブロック
+            const user = await usersCollection.findOne({ userId: userId });
+            if (user && user.isPermanentlyLocked) {
+                // 永久ロックユーザーには、Postbackに対する返信も行わない
+                await messagesCollection.insertOne({
+                    userId: userId,
+                    message: `（Postbackイベント - ${action}）`,
+                    replyText: '（アカウント永久停止中のため返信ブロック）',
+                    respondedBy: 'こころちゃん（システム - 永久停止）',
+                    timestamp: new Date(),
+                    logType: 'account_permanently_locked_postback_ignored'
+                });
+                return res.status(200).send('OK'); // ここでWebhook処理を終了
+            }
+
+            // ★修正: 日次停止ユーザーのPostback処理（見守りサービス関連は許可）
+            if (user && user.isAccountSuspended && action !== 'watch_register' && action !== 'watch_unregister') {
+                await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんなさい、今日はこれ以上お話しできません🌸 明日になったらまた話しかけてね💖' });
+                return res.status(200).send('OK');
+            }
+
             if (action === 'watch_register') {
-                // "見守り登録します"というテキストメッセージが送られてきたかのように処理を委譲
                 await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, "見守り登録します");
             } else if (action === 'watch_unregister') {
-                // "見守り解除します"というテキストメッセージが送られてきたかのように処理を委譲
                 await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, "見守り解除します");
             }
         }
@@ -907,6 +926,40 @@ app.post('/webhook', async (req, res) => {
             const usersCollection = db.collection("users");
             const messagesCollection = db.collection("messages");
 
+            // ★追加: 管理者コマンドの処理
+            if (isBotAdmin(userId)) {
+                const unlockMatch = userMessage.match(/^\/unlock (U[0-9a-f]{32})$/); // 例: /unlock Uxxxxxxxxxxxxxxxxx
+                if (unlockMatch) {
+                    const targetUserId = unlockMatch[1];
+                    try {
+                        const result = await usersCollection.updateOne(
+                            { userId: targetUserId },
+                            { $set: { isAccountSuspended: false, suspensionReason: null, flaggedMessageCount: 0, isPermanentlyLocked: false, lastPermanentLockNotifiedAt: null } } // ★修正: lastPermanentLockNotifiedAt もリセット
+                        );
+                        if (result.matchedCount > 0) {
+                            await client.replyMessage(event.replyToken, { type: 'text', text: `✅ ユーザー ${targetUserId} のロックを解除し、カウントをリセットしました。` });
+                            // 解除されたユーザーにも通知を送る（任意）
+                            await client.pushMessage(targetUserId, { type: 'text', text: '🌸 あなたのアカウントの停止が解除されました。またいつでもお話しできますよ💖' });
+                            console.log(`管理者 ${userId} によりユーザー ${targetUserId} のロックが解除されました。`);
+                        } else {
+                            await client.replyMessage(event.replyToken, { type: 'text', text: `❌ ユーザー ${targetUserId} は見つかりませんでした。` });
+                        }
+                    } catch (error) {
+                        console.error(`❌ 管理者コマンドでのロック解除エラー: ${error.message}`);
+                        await client.replyMessage(event.replyToken, { type: 'text', text: `❌ ロック解除中にエラーが発生しました: ${error.message}` });
+                    }
+                    await messagesCollection.insertOne({ // 管理者コマンドのログ
+                        userId: userId,
+                        message: userMessage,
+                        replyText: `（管理者コマンド: ${userMessage}）`,
+                        respondedBy: 'こころちゃん（管理者コマンド処理）',
+                        timestamp: new Date(),
+                        logType: 'admin_command'
+                    });
+                    return res.status(200).send('OK'); // コマンド処理後はここで終了
+                }
+            }
+
             // ユーザーが存在しない場合、初回登録
             let user = await usersCollection.findOne({ userId: userId });
             if (!user) {
@@ -922,7 +975,11 @@ app.post('/webhook', async (req, res) => {
                     firstReminderSent: false,
                     secondReminderSent: false,
                     lastOkResponse: new Date(),
-                    flaggedMessageCount: 0 // 新規ユーザーにカウンターを初期化
+                    flaggedMessageCount: 0,
+                    isAccountSuspended: false,
+                    suspensionReason: null,
+                    isPermanentlyLocked: false, // ★追加: 永久ロックフラグ
+                    lastPermanentLockNotifiedAt: null // ★追加: 永久ロック通知日時
                 };
                 await usersCollection.insertOne(user);
                 console.log(`新規ユーザー登録: ${user.displayName} (${userId})`);
@@ -932,103 +989,264 @@ app.post('/webhook', async (req, res) => {
                     { userId: userId },
                     { $set: { lastMessageAt: new Date() } }
                 );
-                // 既存ユーザーでflaggedMessageCountが未定義の場合に初期化 (初回デプロイ時の対応)
+                // 既存ユーザーでflaggedMessageCountやisAccountSuspended, isPermanentlyLockedが未定義の場合に初期化 (初回デプロイ時の対応)
                 if (user.flaggedMessageCount === undefined) {
-                    await usersCollection.updateOne(
-                        { userId: userId },
-                        { $set: { flaggedMessageCount: 0 } }
-                    );
-                    user.flaggedMessageCount = 0; // メモリ上のuserオブジェクトも更新
+                    await usersCollection.updateOne({ userId: userId }, { $set: { flaggedMessageCount: 0 } });
+                    user.flaggedMessageCount = 0;
+                }
+                if (user.isAccountSuspended === undefined) {
+                    await usersCollection.updateOne({ userId: userId }, { $set: { isAccountSuspended: false, suspensionReason: null } });
+                    user.isAccountSuspended = false;
+                    user.suspensionReason = null;
+                }
+                // ★追加: isPermanentlyLocked の初期化
+                if (user.isPermanentlyLocked === undefined) {
+                    await usersCollection.updateOne({ userId: userId }, { $set: { isPermanentlyLocked: false } });
+                    user.isPermanentlyLocked = false;
+                }
+                // ★追加: lastPermanentLockNotifiedAt の初期化
+                if (user.lastPermanentLockNotifiedAt === undefined) {
+                    await usersCollection.updateOne({ userId: userId }, { $set: { lastPermanentLockNotifiedAt: null } });
+                    user.lastPermanentLockNotifiedAt = null;
                 }
             }
 
-            // 見守りサービス関連の処理を優先
-            if (await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, userMessage)) {
-                // 見守りサービス関連の処理が完了したら、それ以上の処理は行わない
+            // ★修正: アカウントが恒久的にロックされている場合の処理を最優先
+            if (user.isPermanentlyLocked) {
+                const now = new Date();
+                const oneDayAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000)); // 24時間前
+
+                // 最終通知から24時間以上経過しているか、まだ通知していない場合のみ返信する
+                if (!user.lastPermanentLockNotifiedAt || user.lastPermanentLockNotifiedAt < oneDayAgo) {
+                    const userDisplayName = await getUserDisplayName(userId);
+                    const emailAddress = "support@connect-npo.org"; // 問い合わせ先のメールアドレス
+
+                    // ユーザーに送信する停止通知メッセージ
+                    const permanentLockMessage = `
+ごめんなさい。このアカウントは、利用規約に違反する悪意ある行為が確認されたため、停止となりました。
+
+心当たりのない方は、以下をお伝えの上、${emailAddress} までメールにてご連絡をお願いします。
+・LINE ID: ${userId}
+・ユーザー名: ${userDisplayName}
+・メッセージ送信日時（おおよそで結構です）
+`.trim();
+
+                    await client.replyMessage(event.replyToken, { type: 'text', text: permanentLockMessage });
+                    await usersCollection.updateOne( // 通知日時を更新
+                        { userId: userId },
+                        { $set: { lastPermanentLockNotifiedAt: now } }
+                    );
+                    await messagesCollection.insertOne({ // 通知ログ
+                        userId: userId,
+                        message: userMessage,
+                        replyText: permanentLockMessage, // 送信したメッセージをログに記録
+                        respondedBy: 'こころちゃん（システム - 永久停止通知）',
+                        timestamp: new Date(),
+                        logType: 'account_permanently_locked_notified'
+                    });
+                } else {
+                    // 24時間以内に通知済みの場合は、LINE APIへの返信は行わず、WebhookをOKで終了させるのみ
+                    console.log(`ユーザー ${userId} は永久ロック済みで、最近通知済みのため、メッセージを無視します。`);
+                    await messagesCollection.insertOne({ // 無視した旨のログ
+                        userId: userId,
+                        message: userMessage,
+                        replyText: '（アカウント永久停止中のため返信ブロック - 通知済み）',
+                        respondedBy: 'こころちゃん（システム - 永久停止）',
+                        timestamp: new Date(),
+                        logType: 'account_permanently_locked_ignored'
+                    });
+                }
+                return res.status(200).send('OK'); // ここでWebhook処理を終了し、サーバー負荷を最小化
+            }
+
+            // ★修正: 日次停止されている場合の処理 (永久ロックより後)
+            if (user.isAccountSuspended) { // isPermanentlyLocked が false の場合のみここに来る
+                await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんなさい、今日はこれ以上お話しできません🌸 明日になったらまた話しかけてね💖' });
+                await messagesCollection.insertOne({
+                    userId: userId,
+                    message: userMessage,
+                    replyText: '（アカウント停止中のため返信ブロック）',
+                    respondedBy: 'こころちゃん（システム）',
+                    timestamp: new Date(),
+                    logType: 'account_suspended_daily'
+                });
                 return res.status(200).send('OK');
             }
+
+            // 見守りサービス関連の処理を優先
+            // ただし、見守りサービス関連のメッセージが不適切ワードを含む可能性もあるため、
+            // isFlaggedMessageのチェックはその後に行う必要がある。
+            // 見守りサービスの特定のキーワード（「見守り登録します」「OKだよ💖」など）は
+            // 不適切ワード検出より優先して処理し、フラグ付きカウントには含めない。
+            const handledByWatchService = await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, userMessage);
+            if (handledByWatchService) {
+                return res.status(200).send('OK');
+            }
+
 
             // 危険ワード、詐欺ワード、不適切ワードのチェック
             let replyText;
             let respondedBy = 'こころちゃん（AI）';
             let logType = 'normal';
-            let isFlaggedMessage = false; // フラグ付きメッセージであるかを示す新しいフラグ
+            let isFlaggedMessage = false; // フラグ付きメッセージであるか
 
-            if (containsDangerWords(userMessage)) {
-                replyText = emergencyFlex;
-                respondedBy = 'こころちゃん（緊急対応）';
-                logType = 'danger_detected';
+            // 不適切ワード検出は、AI生成よりも優先
+            if (containsInappropriateWords(userMessage)) {
                 isFlaggedMessage = true;
-            } else if (containsScamWords(userMessage) || contextualScamPhrases.some(phrase => userMessage.toLowerCase().includes(phrase.toLowerCase()))) {
-                replyText = scamFlex;
-                respondedBy = 'こころちゃん（詐欺対応）';
-                logType = 'scam_detected';
-                isFlaggedMessage = true;
-            } else if (containsInappropriateWords(userMessage)) {
-                // 不適切ワードに対するAIの返答はgenerateReply内で制御されるため、ここでも呼び出す
-                replyText = { type: 'text', text: await generateReply(userMessage) };
-                respondedBy = 'こころちゃん（不適切ワード）';
                 logType = 'inappropriate_detected';
+                respondedBy = 'こころちゃん（不適切ワード）';
+
+                const updateResult = await usersCollection.findOneAndUpdate(
+                    { userId: userId },
+                    { $inc: { flaggedMessageCount: 1 } },
+                    { returnDocument: 'after' }
+                );
+                const updatedUser = updateResult.value;
+                const currentFlaggedCount = updatedUser ? updatedUser.flaggedMessageCount : 0;
+                const userDisplayName = updatedUser ? updatedUser.displayName : "不明なユーザー";
+
+                if (currentFlaggedCount === 1) {
+                    replyText = { type: 'text', text: `ごめんなさい💦 不適切なワードが検出されました (1/3) 🌸ごめんね、他のお話をしようね💖` };
+                } else if (currentFlaggedCount === 2) {
+                    replyText = { type: 'text', text: `⚠️ 不適切なワードが検出されました (2/3) 管理者が会話内容を確認する場合があります。気をつけてね🌸` }; // ★修正: 既読懸念を考慮した文言
+                    // 管理者への通知
+                    if (OWNER_USER_ID) {
+                        const notificationMessage = `🚨 緊急通知：ユーザー「${userDisplayName}」（ID: ${userId}）が2回目のフラグ付き発言（${logType}）を行いました。\n\n内容: 「${userMessage}」`;
+                        await client.pushMessage(OWNER_USER_ID, { type: 'text', text: notificationMessage });
+                        console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に2回目フラグ付き発言通知を送信しました（ユーザー: ${userId}）`);
+                    }
+                } else if (currentFlaggedCount >= 3) {
+                    replyText = { type: 'text', text: `🚫 不適切なワードが検出されました (3/3) このアカウントは今後ご利用いただけません。` }; // ★修正: メッセージをより厳しく
+                    // アカウント永久停止
+                    await usersCollection.updateOne(
+                        { userId: userId },
+                        { $set: { isAccountSuspended: true, suspensionReason: 'inappropriate_permanently_locked', isPermanentlyLocked: true, lastPermanentLockNotifiedAt: new Date() } } // ★修正: isPermanentlyLocked を true に、通知日時も設定
+                    );
+                    // 管理者への通知 (3回目)
+                    if (OWNER_USER_ID) {
+                        const notificationMessage = `🚨 緊急通知：ユーザー「${userDisplayName}」（ID: ${userId}）が3回目のフラグ付き発言（${logType}）を行い、アカウントが永久停止されました。\n\n内容: 「${userMessage}」`;
+                        await client.pushMessage(OWNER_USER_ID, { type: 'text', text: notificationMessage });
+                        console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に3回目フラグ付き発言通知とアカウント永久停止通知を送信しました（ユーザー: ${userId}）`);
+                    }
+                }
+            } else if (containsDangerWords(userMessage)) {
                 isFlaggedMessage = true;
+                logType = 'danger_detected';
+                respondedBy = 'こころちゃん（緊急対応）';
+                replyText = emergencyFlex;
+
+                const updateResult = await usersCollection.findOneAndUpdate(
+                    { userId: userId },
+                    { $inc: { flaggedMessageCount: 1 } },
+                    { returnDocument: 'after' }
+                );
+                const updatedUser = updateResult.value;
+                const currentFlaggedCount = updatedUser ? updatedUser.flaggedMessageCount : 0;
+                const userDisplayName = updatedUser ? updatedUser.displayName : "不明なユーザー";
+
+                if (currentFlaggedCount === 2 && OWNER_USER_ID) {
+                    const notificationMessage = `🚨 緊急通知：ユーザー「${userDisplayName}」（ID: ${userId}）が2回目のフラグ付き発言（${logType}）を行いました。\n\n内容: 「${userMessage}」`;
+                    await client.pushMessage(OWNER_USER_ID, { type: 'text', text: notificationMessage });
+                    console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に2回目フラグ付き発言通知を送信しました（ユーザー: ${userId}）`);
+                } else if (currentFlaggedCount >= 3) { // 3回目で永久停止
+                     await usersCollection.updateOne(
+                        { userId: userId },
+                        { $set: { isAccountSuspended: true, suspensionReason: 'danger_permanently_locked', isPermanentlyLocked: true, lastPermanentLockNotifiedAt: new Date() } } // ★修正: isPermanentlyLocked を true に、通知日時も設定
+                    );
+                    replyText = { type: 'text', text: `🚫 危険なワードが検出されました (3/3) このアカウントは今後ご利用いただけません。` }; // ★修正
+                    const notificationMessage = `🚨 緊急通知：ユーザー「${userDisplayName}」（ID: ${userId}）が3回目のフラグ付き発言（${logType}）を行い、アカウントが永久停止されました。\n\n内容: 「${userMessage}」`;
+                    await client.pushMessage(OWNER_USER_ID, { type: 'text', text: notificationMessage });
+                    console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に3回目フラグ付き発言通知とアカウント永久停止通知を送信しました（ユーザー: ${userId}）`);
+                }
+            } else if (containsScamWords(userMessage) || contextualScamPhrases.some(phrase => userMessage.toLowerCase().includes(phrase.toLowerCase()))) {
+                isFlaggedMessage = true;
+                logType = 'scam_detected';
+                respondedBy = 'こころちゃん（詐欺対応）';
+                replyText = scamFlex;
+
+                const updateResult = await usersCollection.findOneAndUpdate(
+                    { userId: userId },
+                    { $inc: { flaggedMessageCount: 1 } },
+                    { returnDocument: 'after' }
+                );
+                const updatedUser = updateResult.value;
+                const currentFlaggedCount = updatedUser ? updatedUser.flaggedMessageCount : 0;
+                const userDisplayName = updatedUser ? updatedUser.displayName : "不明なユーザー";
+
+                if (currentFlaggedCount === 2 && OWNER_USER_ID) {
+                    const notificationMessage = `🚨 緊急通知：ユーザー「${userDisplayName}」（ID: ${userId}）が2回目のフラグ付き発言（${logType}）を行いました。\n\n内容: 「${userMessage}」`;
+                    await client.pushMessage(OWNER_USER_ID, { type: 'text', text: notificationMessage });
+                    console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に2回目フラグ付き発言通知を送信しました（ユーザー: ${userId}）`);
+                } else if (currentFlaggedCount >= 3) { // 3回目で永久停止
+                     await usersCollection.updateOne(
+                        { userId: userId },
+                        { $set: { isAccountSuspended: true, suspensionReason: 'scam_permanently_locked', isPermanentlyLocked: true, lastPermanentLockNotifiedAt: new Date() } } // ★修正: isPermanentlyLocked を true に、通知日時も設定
+                    );
+                    replyText = { type: 'text', text: `🚫 詐欺の可能性がある内容が検出されました (3/3) このアカウントは今後ご利用いただけません。` }; // ★修正
+                    const notificationMessage = `🚨 緊急通知：ユーザー「${userDisplayName}」（ID: ${userId}）が3回目のフラグ付き発言（${logType}）を行い、アカウントが永久停止されました。\n\n内容: 「${userMessage}」`;
+                    await client.pushMessage(OWNER_USER_ID, { type: 'text', text: notificationMessage });
+                    console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に3回目フラグ付き発言通知とアカウント永久停止通知を送信しました（ユーザー: ${userId}）`);
+                }
             } else {
-                // 組織に関する問い合わせをAIに渡す前にチェック
+                // 通常のAI応答または固定応答
                 if (isOrganizationInquiry(userMessage)) {
-                    replyText = { type: 'text', text: await generateReply(userMessage) }; // AIに組織説明を優先させる
+                    replyText = { type: 'text', text: await generateReply(userMessage) };
                     respondedBy = 'こころちゃん（AI-組織説明）';
                 } else {
-                    // 固定応答のチェック
                     const specialReply = checkSpecialReply(userMessage);
                     if (specialReply) {
                         replyText = { type: 'text', text: specialReply };
                         respondedBy = 'こころちゃん（固定応答）';
                     } else {
-                        // AIによる応答生成
                         replyText = { type: 'text', text: await generateReply(userMessage) };
                     }
                 }
             }
 
             try {
-                if (typeof replyText === 'string') {
-                    // Flexメッセージなどではない場合のフォールバック（通常はオブジェクト）
-                    await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-                } else {
-                    await client.replyMessage(event.replyToken, replyText);
+                // 永続ロックされたユーザーへの初回通知時以外は、replyMessageは行わない
+                // 上記の isPermanentlyLocked のブロックで既に replyMessage が行われているか、
+                // あるいは行わない判断がされているため、ここでは !user.isPermanentlyLocked の条件は不要
+                // (ただし、その条件でreplyTextが設定されている場合もあるので、型チェックを挟む)
+                if (replyText && typeof replyText === 'object' && replyText.type) { // replyTextがオブジェクト型（Flexメッセージなど）の場合
+                     await client.replyMessage(event.replyToken, replyText);
+                } else if (replyText && typeof replyText === 'string') { // replyTextが文字列（テキストメッセージ）の場合
+                     await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
                 }
 
-                // フラグ付きメッセージの場合のみ、カウンターを更新し通知を送信
+                // フラグ付きメッセージは常にログに記録（PermanentLockで通知しなかった場合もログは残す）
                 if (isFlaggedMessage) {
-                    const updateResult = await usersCollection.findOneAndUpdate(
-                        { userId: userId },
-                        { $inc: { flaggedMessageCount: 1 } },
-                        { returnDocument: 'after' } // 更新後のドキュメントを返す
-                    );
-
-                    const updatedUser = updateResult.value;
-                    const currentFlaggedCount = updatedUser ? updatedUser.flaggedMessageCount : 0; // updateResult.valueがnullの場合に備える
-                    const userDisplayName = updatedUser ? updatedUser.displayName : "不明なユーザー";
-
-                    // 2回目のフラグ付きメッセージで、かつOWNER_USER_IDが設定されている場合のみ通知
-                    // `currentFlaggedCount === 2` で2回目のみ通知、`currentFlaggedCount > 1` で2回目以降毎回通知
-                    if (currentFlaggedCount === 2 && OWNER_USER_ID) {
-                        const notificationMessage = `🚨 緊急通知：ユーザー「${userDisplayName}」（ID: ${userId}）が2回目のフラグ付き発言（${logType}）を行いました。\n\n内容: 「${userMessage}」`;
-                        await client.pushMessage(OWNER_USER_ID, { type: 'text', text: notificationMessage });
-                        console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に2回目フラグ付き発言通知を送信しました（ユーザー: ${userId}）`);
-                    }
-
-                    // フラグ付きメッセージをDBに記録
                     await messagesCollection.insertOne({
                         userId: userId,
                         message: userMessage,
-                        replyText: JSON.stringify(replyText), // Flexメッセージは文字列化して保存
+                        replyText: JSON.stringify(replyText), // Flexメッセージの場合はJSON文字列化
                         respondedBy: respondedBy,
                         timestamp: new Date(),
                         logType: logType
                     });
+                } else if (shouldLogMessage(userMessage)) { // 明示的にフラグが付かなくても、危険ワード等が含まれていればログ
+                     await messagesCollection.insertOne({
+                        userId: userId,
+                        message: userMessage,
+                        replyText: JSON.stringify(replyText),
+                        respondedBy: respondedBy,
+                        timestamp: new Date(),
+                        logType: logType // ここでは `normal` または AI応答のログタイプになる
+                    });
+                } else { // 通常のメッセージもログ (ログが不要な場合はこのelseブロックを削除)
+                    await messagesCollection.insertOne({
+                        userId: userId,
+                        message: userMessage,
+                        replyText: (replyText && typeof replyText === 'string') ? replyText : JSON.stringify(replyText), // 文字列の場合はそのまま、オブジェクトの場合はJSON化
+                        respondedBy: respondedBy,
+                        timestamp: new Date(),
+                        logType: logType // 通常は 'normal'
+                    });
                 }
+
             } catch (error) {
                 console.error("メッセージ返信中またはログ記録・通知中にエラーが発生しました:", error.message);
-                // エラー発生時も成功を返してLINE側の再送を防ぐ
+                // LINE APIのエラーでreplyTokenが使用済みになる可能性があるので、replyMessageは行わない
             }
         }
     }
