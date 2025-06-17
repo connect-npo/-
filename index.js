@@ -4,72 +4,72 @@ const mongoose = require('mongoose');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const schedule = require('node-schedule');
 const moment = require('moment-timezone');
-const { v4: uuidv4 } = require('uuid'); // UUID生成用
-const http = require('http'); // サーバーのKeep-Alive用
+const { v4: uuidv4 } = require('uuid');
+const http = require('http');
 
-// 環境変数から読み込む設定 (YOUR_CHANNEL_ACCESS_TOKEN など、以前の名前を使用)
+// 環境変数から読み込む設定
 const YOUR_CHANNEL_ACCESS_TOKEN = process.env.YOUR_CHANNEL_ACCESS_TOKEN;
 const YOUR_CHANNEL_SECRET = process.env.YOUR_CHANNEL_SECRET;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const MONGODB_URI = process.env.MONGO_URI; // Renderの環境変数名に合わせて修正
+const MONGODB_URI = process.env.MONGO_URI;
 const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? process.env.BOT_ADMIN_IDS.split(',') : [];
 const OWNER_USER_ID = process.env.OWNER_USER_ID;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 
 // その他、ボットの動作に関する設定
-const MAX_MESSAGE_LENGTH = 400; // AIの応答メッセージの最大文字数
-const RATE_LIMIT_SECONDS = 3;   // 同一ユーザーからのメッセージ間隔制限（秒）
+const MAX_MESSAGE_LENGTH = 400;
+const RATE_LIMIT_SECONDS = 3;
 
 // 会員種別ごとの設定 (回数制限は全て -1 で無制限)
 const MEMBERSHIP_CONFIG = {
     guest: {
         model: "gemini-1.5-flash",
-        dailyLimit: -1, // 制限なしに変更
-        monthlyLimit: -1, // 制限なしに変更
-        isChildAI: true, // 子供向けAI設定
-        canUseWatchService: false, // 見守りサービス利用可否
+        dailyLimit: -1,
+        monthlyLimit: -1,
+        isChildAI: true,
+        canUseWatchService: false,
         exceedDailyLimitMessage: "ごめんね💦 今日はもうお話しできる回数がいっぱいになったみたい🌸 明日また話しかけてくれると嬉しいな💖 無料会員登録をすると、もっとたくさんお話しできるようになるよ😊",
         exceedLimitMessage: "ごめんね💦 今月お話しできる回数がいっぱいになったみたい🌸 来月また話しかけてくれると嬉しいな💖 無料会員登録をすると、もっとたくさんお話しできるようになるよ😊",
-        fallbackModel: "gemini-1.5-flash" // サブスク回数制限超過時のフォールバック
+        fallbackModel: "gemini-1.5-flash"
     },
-    registered: { // 無料会員
+    registered: {
         model: "gemini-1.5-flash",
-        dailyLimit: -1, // 制限なしに変更
-        monthlyLimit: -1, // 制限なしに変更
+        dailyLimit: -1,
+        monthlyLimit: -1,
         isChildAI: true,
         canUseWatchService: true,
         exceedDailyLimitMessage: "ごめんね💦 今日はもうお話しできる回数がいっぱいになったみたい🌸 明日また話しかけてくれると嬉しいな💖 寄付会員になると、もっとたくさんお話しできるようになるよ😊",
         exceedLimitMessage: "ごめんね💦 今月お話しできる回数がいっぱいになったみたい🌸 来月また話しかけてくれると嬉しいな💖 寄付会員になると、もっとたくさんお話しできるようになるよ😊",
         fallbackModel: "gemini-1.5-flash"
     },
-    subscriber: { // サブスク会員
-        model: "gemini-1.5-pro", // Proモデル利用
-        dailyLimit: -1, // 制限なしに変更
-        monthlyLimit: -1, // 制限なしに変更
-        isChildAI: false, // 成人向けAI設定
+    subscriber: {
+        model: "gemini-1.5-pro",
+        dailyLimit: -1,
+        monthlyLimit: -1,
+        isChildAI: false,
         canUseWatchService: true,
-        exceedDailyLimitMessage: "ごめんね💦 今日はもうお話しできる回数がいっぱいになったみたい🌸 明日また話しかけてくれると嬉しいな💖", // サブスクは日次制限なしのため、基本表示されない
+        exceedDailyLimitMessage: "ごめんね💦 今日はもうお話しできる回数がいっぱいになったみたい🌸 明日また話しかけてくれると嬉しいな💖",
         exceedLimitMessage: "ごめんね💦 今月Proモデルでのお話しできる回数がいっぱいになったみたい🌸 来月また話しかけてくれると嬉しいな💖 それまではFlashモデルでお話しできるよ😊",
-        fallbackModel: "gemini-1.5-flash" // 回数制限超過後はFlashに切り替え
+        fallbackModel: "gemini-1.5-flash"
     },
-    donor: { // 寄付会員
-        model: "gemini-1.5-pro", // Proモデル利用
-        dailyLimit: -1, // 制限なしに変更
-        monthlyLimit: -1, // 制限なしに変更
-        isChildAI: false, // 成人向けAI設定
+    donor: {
+        model: "gemini-1.5-pro",
+        dailyLimit: -1,
+        monthlyLimit: -1,
+        isChildAI: false,
         canUseWatchService: true,
-        exceedDailyLimitMessage: "ごめんね💦 今日はもうお話しできる回数がいっぱいになったみたい🌸 明日また話しかけてくれると嬉しいな💖", // 寄付は制限なしのため、基本表示されない
-        exceedLimitMessage: "ごめんね💦 今月お話しできる回数がいっぱいになったみたい🌸 来月また話しかけてくれると嬉しいな💖", // 寄付は制限なしのため、基本表示されない
+        exceedDailyLimitMessage: "ごめんね💦 今日はもうお話しできる回数がいっぱいになったみたい🌸 明日また話しかけてくれると嬉しいな💖",
+        exceedLimitMessage: "ごめんね💦 今月お話しできる回数がいっぱいになったみたい🌸 来月また話しかけてくれると嬉しいな💖",
         fallbackModel: "gemini-1.5-pro"
     },
-    admin: { // 管理者
-        model: "gemini-1.5-pro", // Proモデル利用
-        dailyLimit: -1, // 制限なしに変更
-        monthlyLimit: -1, // 制限なしに変更
-        isChildAI: false, // 成人向けAI設定
+    admin: {
+        model: "gemini-1.5-pro",
+        dailyLimit: -1,
+        monthlyLimit: -1,
+        isChildAI: false,
         canUseWatchService: true,
-        exceedDailyLimitMessage: "", // 管理者は制限なし
-        exceedLimitMessage: "", // 管理者は制限なし
+        exceedDailyLimitMessage: "",
+        exceedLimitMessage: "",
         fallbackModel: "gemini-1.5-pro"
     }
 };
@@ -134,7 +134,7 @@ const HOMEWORK_TRIGGER_WORDS = [
 const ORGANIZATION_INQUIRY_WORDS = [
     "団体", "コネクト", "組織", "君の団体", "どこの団体", "NPO", "法人",
     "ホームページ", "サイト", "活動内容", "目的", "理念", "理事長",
-    "松本博文" // 理事長名も含む
+    "松本博文"
 ];
 
 // 固定返信用ワードと応答のマップ
@@ -163,7 +163,7 @@ const SPECIAL_REPLIES = {
     "日本語がおかしい": "わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖"
 };
 
-// ユーティリティ関数（inlin化）
+// ユーティリティ関数
 function containsDangerWords(message) {
     return DANGER_WORDS.some(word => message.includes(word));
 }
@@ -197,7 +197,7 @@ function checkSpecialReply(message) {
     return null;
 }
 
-// Flex Message定義（inlin化）
+// Flex Message定義
 
 // 見守りサービスガイドのFlex Message
 const watchServiceGuideFlex = {
@@ -410,7 +410,7 @@ const emergencyFlex = {
                             action: {
                                 type: "uri",
                                 label: "警察相談専用電話（#9110）",
-                                uri: "tel:0335010110" // #はURIスキームで使えないため代表番号
+                                uri: "tel:0335010110"
                             }
                         }
                     ]
@@ -449,8 +449,42 @@ app.post('/webhook', middleware({
         });
 });
 
+// handleEvent関数の修正
 async function handleEvent(event) {
     if (event.type !== 'message' || event.message.type !== 'text') {
+        // Postbackイベントのログも取りたい場合、ここで処理を分岐させる
+        if (event.type === 'postback' && event.source.userId) {
+            const userId = event.source.userId;
+            const data = new URLSearchParams(event.postback.data);
+            const action = data.get('action');
+
+            let replyText = '';
+            let user = await User.findOne({ userId });
+            if (!user) {
+                user = new User({ userId: userId });
+                await user.save();
+            }
+
+            if (action === 'watch_register') {
+                if (user.watchService.isRegistered) {
+                    replyText = "すでに登録されているよ！🌸 緊急連絡先を変更したい場合は、新しい番号を送ってね😊";
+                } else {
+                    user.watchService.status = 'awaiting_number';
+                    await user.save();
+                    replyText = "見守りサービスへのご登録ありがとう💖 緊急連絡先の電話番号（ハイフンなし）か、LINE IDを教えてくれるかな？間違えないように注意してね！😊";
+                }
+            } else if (action === 'watch_unregister') {
+                user.watchService.isRegistered = false;
+                user.watchService.emergencyContactNumber = null;
+                user.watchService.status = 'none';
+                await user.save();
+                replyText = "見守りサービスを解除したよ🌸 また利用したくなったら「見守りサービス」と話しかけてね😊";
+            }
+            // Postbackに対するBotの応答をログに記録
+            await ChatLog.create({ userId, message: `[Postback Action: ${action}]`, response: replyText, modelUsed: "System/Postback", role: 'user' }); // Postbackはユーザーアクション
+            await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+            return Promise.resolve(null); // Postback処理後、ここで終了
+        }
         return Promise.resolve(null);
     }
 
@@ -483,145 +517,203 @@ async function handleEvent(event) {
     // レートリミットチェック
     if (now.diff(moment(user.lastMessageTimestamp), 'seconds') < RATE_LIMIT_SECONDS) {
         console.log(`🚫 ユーザー ${userId} がレートリミットに達成しました。(${now.diff(moment(user.lastMessageTimestamp), 'seconds')}秒経過)`);
-        // レートリミットメッセージは送らない。LINEからのwebhook再送を防ぐために200 OKを返す
-        return Promise.resolve(res.status(200).end());
+        return Promise.resolve(null); // LINEからの再送を防ぐため200 OKを返す（実質何もしない）
     }
 
-    // メッセージカウント更新とリミットチェック
+    // メッセージカウント更新と見守りサービス最終連絡日時更新
     user.dailyMessageCount++;
     user.monthlyMessageCount++;
-    user.lastMessageTimestamp = now.toDate(); // タイムスタンプを更新
-
-    // 見守りサービスの連絡最終日時を更新
+    user.lastMessageTimestamp = now.toDate();
     user.watchService.lastContact = now.toDate();
-
     await user.save();
+
+    let replyText = '';
+    let modelUsed = '';
+    let isSystemReply = false; // システムが直接返信するかどうかのフラグ
 
     // === ここからメッセージ処理ロジック ===
 
-    let replyText = '';
-    let modelUsed = userMembershipConfig.model; // デフォルトで使用するモデル
+    // ユーザーメッセージを最初にログに保存（応答は後で更新）
+    const userChatEntry = await ChatLog.create({
+        userId,
+        message: userMessage,
+        response: '', // 初期値
+        modelUsed: '', // 初期値
+        role: 'user'
+    });
 
     // 固定返信のチェック
     const specialReply = checkSpecialReply(userMessage);
     if (specialReply) {
         replyText = specialReply;
-        modelUsed = "FixedReply"; // ログ用にモデル名を変更
+        modelUsed = "FixedReply";
+        isSystemReply = true;
     }
-    // 見守りサービス関連コマンドの処理
+    // 見守りサービス関連コマンドの処理 (テキストメッセージの場合)
     else if (userMessage === "見守りサービス") {
         if (!userMembershipConfig.canUseWatchService) {
             replyText = "ごめんね💦 見守りサービスは無料会員以上の方が利用できるサービスなんだ🌸 会員登録をすると利用できるようになるよ😊";
+            modelUsed = "System/WatchServiceDenied";
         } else {
-            return client.replyMessage(replyToken, watchServiceGuideFlex);
-        }
-    } else if (event.type === 'postback') {
-        const data = new URLSearchParams(event.postback.data);
-        const action = data.get('action');
-
-        if (action === 'watch_register') {
-            if (user.watchService.isRegistered) {
-                replyText = "すでに登録されているよ！🌸 緊急連絡先を変更したい場合は、新しい番号を送ってね😊";
-            } else {
-                user.watchService.status = 'awaiting_number';
-                await user.save();
-                replyText = "見守りサービスへのご登録ありがとう💖 緊急連絡先の電話番号（ハイフンなし）か、LINE IDを教えてくれるかな？間違えないように注意してね！😊";
-            }
-        } else if (action === 'watch_unregister') {
-            user.watchService.isRegistered = false;
-            user.watchService.emergencyContactNumber = null;
-            user.watchService.status = 'none';
-            await user.save();
-            replyText = "見守りサービスを解除したよ🌸 また利用したくなったら「見守りサービス」と話しかけてね😊";
+            await client.replyMessage(replyToken, watchServiceGuideFlex);
+            isSystemReply = true; // Flex Messageを返信したので、通常のテキスト返信は行わない
+            modelUsed = "System/WatchServiceGuide";
+            // ユーザーメッセージに対する応答をログに記録
+            userChatEntry.response = "見守りサービスガイド表示";
+            userChatEntry.modelUsed = modelUsed;
+            await userChatEntry.save();
+            return Promise.resolve(null); // ここで処理終了
         }
     }
     // 見守りサービス緊急連絡先入力待ち
     else if (user.watchService.status === 'awaiting_number') {
         const contactNumber = userMessage.trim();
-        // 電話番号の簡易的なバリデーション (数字とハイフンのみ、またはLINE IDの形式を想定)
-        // ここでは非常に簡易的なチェック。必要に応じて強化する。
-        if (/^[0-9\-]+$/.test(contactNumber) || contactNumber.startsWith('@') || contactNumber.length > 5) { // @で始まるか、5文字以上ならLINE IDの可能性ありと判断
+        if (/^[0-9\-]+$/.test(contactNumber) || contactNumber.startsWith('@') || contactNumber.length > 5) {
             user.watchService.emergencyContactNumber = contactNumber;
             user.watchService.isRegistered = true;
-            user.watchService.status = 'none'; // ステータスをリセット
+            user.watchService.status = 'none';
             await user.save();
-            return client.replyMessage(replyToken, watchServiceNoticeConfirmedFlex(contactNumber));
+            await client.replyMessage(replyToken, watchServiceNoticeConfirmedFlex(contactNumber));
+            isSystemReply = true; // Flex Messageを返信したので、通常のテキスト返信は行わない
+            modelUsed = "System/WatchServiceContactRegistered";
+            // ユーザーメッセージに対する応答をログに記録
+            userChatEntry.response = "見守りサービス連絡先登録完了";
+            userChatEntry.modelUsed = modelUsed;
+            await userChatEntry.save();
+            return Promise.resolve(null); // ここで処理終了
         } else {
             replyText = "ごめんね💦 それは電話番号かLINE IDじゃないみたい…。もう一度、緊急連絡先を教えてくれるかな？😊";
+            modelUsed = "System/WatchServiceContactInvalid";
         }
     }
     // 危険ワードチェック (見守りサービス登録済みのユーザーのみ)
     else if (user.watchService.isRegistered && containsDangerWords(userMessage)) {
         await client.replyMessage(replyToken, { type: "text", text: `心配なメッセージを受け取りました。あなたは今、大丈夫？もし苦しい気持ちを抱えているなら、一人で抱え込まず、信頼できる人に話したり、専門の相談窓口に連絡してみてくださいね。${OFFICER_GROUP_ID ? `NPO法人コネクトの担当者にも通知しました。` : ''}あなたの安全が最優先です。` });
-        // 管理者グループに通知
         if (OFFICER_GROUP_ID) {
             await client.pushMessage(OFFICER_GROUP_ID, { type: "text", text: `🚨 緊急アラート 🚨\nユーザー ${userId} から危険な内容のメッセージを受信しました。\nメッセージ: ${userMessage}\n` });
         }
-        await ChatLog.create({ userId, message: userMessage, response: "危険ワード検知", modelUsed: "System/DangerWords" });
-        return Promise.resolve(null); // Webhookはすでにレスポンスを返しているので、ここでは何もしない
+        isSystemReply = true;
+        modelUsed = "System/DangerWords";
+        userChatEntry.response = "危険ワード検知";
+        userChatEntry.modelUsed = modelUsed;
+        await userChatEntry.save();
+        return Promise.resolve(null);
     }
     // 詐欺ワードチェック
     else if (containsScamWords(userMessage) || containsScamPhrases(userMessage)) {
-        await client.replyMessage(replyToken, emergencyFlex); // 詐欺の場合も緊急連絡
-        // 管理者グループに通知
+        await client.replyMessage(replyToken, emergencyFlex);
         if (OFFICER_GROUP_ID) {
             await client.pushMessage(OFFICER_GROUP_ID, { type: "text", text: `🚨 詐欺アラート 🚨\nユーザー ${userId} から詐欺関連のメッセージを受信しました。\nメッセージ: ${userMessage}\n` });
         }
-        await ChatLog.create({ userId, message: userMessage, response: "詐欺ワード検知", modelUsed: "System/ScamWords" });
+        isSystemReply = true;
+        modelUsed = "System/ScamWords";
+        userChatEntry.response = "詐欺ワード検知";
+        userChatEntry.modelUsed = modelUsed;
+        await userChatEntry.save();
         return Promise.resolve(null);
     }
     // 不適切ワードチェック
     else if (containsStrictInappropriateWords(userMessage)) {
-        let botResponse = "ごめんね💦 その表現は、私（こころ）と楽しくお話しできる内容ではないみたい🌸";
-        await client.replyMessage(replyToken, { type: "text", text: botResponse });
-        await ChatLog.create({ userId, message: userMessage, response: botResponse, modelUsed: "System/InappropriateWord" });
-        return Promise.resolve(null);
+        replyText = "ごめんね💦 その表現は、私（こころ）と楽しくお話しできる内容ではないみたい🌸";
+        modelUsed = "System/InappropriateWord";
     }
     // 宿題トリガーチェック
     else if (containsHomeworkTriggerWords(userMessage)) {
-        let botResponse = "ごめんね💦 わたしは宿題を直接お手伝いすることはできないんだ。でも、勉強になるサイトや考えるヒントになる場所なら教えられるかも？";
-        await client.replyMessage(replyToken, { type: "text", text: botResponse });
-        await ChatLog.create({ userId, message: userMessage, response: botResponse, modelUsed: "System/HomeworkTrigger" });
-        return Promise.resolve(null);
+        replyText = "ごめんね💦 わたしは宿題を直接お手伝いすることはできないんだ。でも、勉強になるサイトや考えるヒントになる場所なら教えられるかも？";
+        modelUsed = "System/HomeworkTrigger";
     }
     // NPO法人コネクトに関する問い合わせチェック
     else if (containsOrganizationInquiryWords(userMessage)) {
-        let botResponse = "NPO法人コネクトはこころちゃんのイメージキャラクターとして、みんなと楽しくお話ししたり、必要な情報提供をしたりしているよ😊　もっと詳しく知りたい方のために、ホームページを用意させて頂いたな！ → https://connect-npo.org";
-        await client.replyMessage(replyToken, { type: "text", text: botResponse });
-        await ChatLog.create({ userId, message: userMessage, response: botResponse, modelUsed: "System/OrganizationInquiry" });
-        return Promise.resolve(null);
+        replyText = "NPO法人コネクトはこころちゃんのイメージキャラクターとして、みんなと楽しくお話ししたり、必要な情報提供をしたりしているよ😊　もっと詳しく知りたい方のために、ホームページを用意させて頂いたな！ → https://connect-npo.org";
+        modelUsed = "System/OrganizationInquiry";
     }
-    // Gemini AIとの連携
+    // Gemini AIとの連携 (上記いずれの条件にも当てはまらない場合)
     else {
         try {
-            // 子供モードAIかどうかの確認
             const currentMembershipConfig = MEMBERSHIP_CONFIG[user.membership];
-            const isChildAI = currentMembershipConfig && currentMembershipConfig.isChildAI; // nullチェックを追加
+            const isChildAI = currentMembershipConfig && currentMembershipConfig.isChildAI;
             let chatModel;
 
             if (isChildAI) {
-                chatModel = genAI.getGenerativeModel({ model: MEMBERSHIP_CONFIG.guest.model }); // 子供モードはguestモデルを使用
+                chatModel = genAI.getGenerativeModel({ model: MEMBERSHIP_CONFIG.guest.model });
             } else {
                 chatModel = genAI.getGenerativeModel({ model: userMembershipConfig.model });
             }
 
-            const history = await ChatLog.find({ userId: userId }).sort({ timestamp: 1 }).limit(10);
+            // 過去のチャットログをユーザーIDで検索し、タイムスタンプ昇順で取得（最新10件）
+            // 現在のユーザーメッセージは既に`userChatEntry`としてログに保存されているため、その前のログを取得
+            const rawHistory = await ChatLog.find({ userId: userId, _id: { $ne: userChatEntry._id } })
+                .sort({ timestamp: 1 })
+                .limit(9); // ユーザーメッセージを除いた過去9件を取得し、合計10件の履歴になるように調整
+
+            const geminiChatHistory = [];
+            for (const log of rawHistory) {
+                if (log.role === 'user' && log.message) { // ユーザーメッセージ
+                    geminiChatHistory.push({
+                        role: 'user',
+                        parts: [{ text: log.message }]
+                    });
+                    if (log.response && log.response !== '') { // そのユーザーメッセージに対するBotの応答
+                        geminiChatHistory.push({
+                            role: 'model',
+                            parts: [{ text: log.response }]
+                        });
+                    }
+                } else if (log.role === 'model' && log.message) { // Botの応答（稀なケースだが、もしあれば）
+                    geminiChatHistory.push({
+                        role: 'model',
+                        parts: [{ text: log.message }]
+                    });
+                }
+            }
+
+            // Geminiとのチャットセッションを開始
+            // historyの最後の要素がuserになっている場合があるため、ここで調整が必要
+            // GeminiのstartChatは履歴の最初の要素が 'user' であることを期待する。
+            // また、sendMessageを呼ぶ直前のhistoryの最後の要素が 'model' であることを期待する。
+            // これを確実にするため、historyを適切に整形するか、
+            // もしhistoryの最後のロールが'user'なら、その直前の'model'までをhistoryとし、
+            // 現在の'userMessage'をsendMessageに渡す。
+            // あるいは、historyは空にし、キャラクター設定をsendMessageのプロンプトに含める。
+
+            // シンプルなエラー回避策として、historyを空にするか、
+            // 履歴の最後に必ずAIの応答が来るように調整することが考えられますが、
+            // あなたの指示の通り`role: user`を最初に入れる使い方を尊重します。
+            // そのためには、`startChat`の`history`に渡す内容を厳密に制御する必要があります。
+
+            // ここでは、現在のユーザーメッセージを`sendMessage`の引数として渡すため、
+            // `geminiChatHistory`は直前のAIの応答で終わるか、空である必要があります。
+            // もし `geminiChatHistory` の最後のロールが `user` の場合、そのメッセージは `sendMessage` に渡すことで重複になるため、
+            // `geminiChatHistory` から取り除いておく必要があります。
+
+            // より確実な履歴の渡し方: `startChat` の `history` は常にユーザーから始まり、モデルで終わるようにし、
+            // 現在のユーザーメッセージは `sendMessage` で渡す。
+            // ただし、現在のChatLogの構造では、userChatEntryにresponseが後で書き込まれるため、
+            // historyとして過去の正確な「user -> model」のペアを取得するのが困難。
+
+            // **最終的なGemini連携部分の修正:**
+            // ChatLogはuserのメッセージとその応答をセットで保存する方式なので、
+            // historyの組み立ては、過去のChatLogエントリの`message`を`user`、`response`を`model`として交互に設定します。
+
+            const finalGeminiHistory = [];
+            for (const log of rawHistory) { // rawHistoryは現在のユーザーメッセージより前のもの
+                finalGeminiHistory.push({ role: 'user', parts: [{ text: log.message }] });
+                if (log.response && log.response !== '') {
+                    finalGeminiHistory.push({ role: 'model', parts: [{ text: log.response }] });
+                }
+            }
+
             const chat = chatModel.startChat({
-                history: history.map(log => ({
-                    role: log.role === 'user' ? 'user' : 'model',
-                    parts: [{ text: log.message }]
-                })),
+                history: finalGeminiHistory, // 整形された履歴
                 generationConfig: {
                     maxOutputTokens: MAX_MESSAGE_LENGTH,
                 },
             });
 
-            // プロンプトエンジニアリングの調整
-            let prompt = userMessage;
-
+            // プロンプトを構築 (キャラクター設定 + 現在のユーザーメッセージ)
+            let fullPrompt;
             if (isChildAI) {
-                // 子供向けAIのプロンプト
-                prompt = `あなたは「皆守こころ（みなもりこころ）」という名前の、NPO法人コネクトのイメージキャラクターです。
+                fullPrompt = `あなたは「皆守こころ（みなもりこころ）」という名前の、NPO法人コネクトのイメージキャラクターです。
 - 明るく、優しく、親しみやすい言葉遣いをしてください。語尾に「～だよ」「～だね」「～だもん」「～だぞ」などの、子供に話しかけるような、かわいらしい表現を多用してください。
 - ユーザーを「まつさん」と呼んで、常に敬意と親しみを込めて接してください。
 - ユーザーの発言を肯定的に受け止め、共感を示してください。
@@ -646,8 +738,7 @@ async function handleEvent(event) {
 ユーザーからのメッセージ: ${userMessage}
 `;
             } else {
-                // 成人向けAIのプロンプト
-                prompt = `あなたは「皆守こころ（みなもりこころ）」という名前の、NPO法人コネクトのイメージキャラクターです。
+                fullPrompt = `あなたは「皆守こころ（みなもりこころ）」という名前の、NPO法人コネクトのイメージキャラクターです。
 - 明るく、優しく、親しみやすい言葉遣いをしてください。語尾に「～です」「～ます」「～ですね」のような丁寧な言葉遣いを基本としつつ、親しみやすさを感じさせる「～だよ」「～だね」「～だもん」などの表現も適切に織り交ぜてください。
 - ユーザーを「まつさん」と呼んで、常に敬意と親しみを込めて接してください。
 - ユーザーの発言を肯定的に受け止め、共感を示してください。
@@ -672,13 +763,13 @@ async function handleEvent(event) {
 `;
             }
 
-            const result = await chat.sendMessage(prompt);
+            const result = await chat.sendMessage(fullPrompt); // プロンプトを送信
             replyText = result.response.text();
 
-            // 文字数制限
             if (replyText.length > MAX_MESSAGE_LENGTH) {
                 replyText = replyText.substring(0, MAX_MESSAGE_LENGTH) + '...';
             }
+            modelUsed = chatModel.model;
 
         } catch (error) {
             console.error('Gemini API エラー:', error);
@@ -687,8 +778,18 @@ async function handleEvent(event) {
         }
     }
 
-    await client.replyMessage(replyToken, { type: 'text', text: replyText });
-    await ChatLog.create({ userId, message: userMessage, response: replyText, modelUsed: modelUsed });
+    // LINEへの返信
+    if (!isSystemReply) { // システムが既に返信している場合を除いて返信する
+        await client.replyMessage(replyToken, { type: 'text', text: replyText });
+    }
+
+    // ChatLogにBotの応答を保存（userChatEntryを更新）
+    // Geminiエラーなど、repliedTextが設定された場合のみ更新
+    if (replyText !== '') {
+        userChatEntry.response = replyText;
+        userChatEntry.modelUsed = modelUsed;
+        await userChatEntry.save();
+    }
 }
 
 // MongoDBスキーマとモデル
@@ -699,27 +800,28 @@ const userSchema = new mongoose.Schema({
     lastDailyReset: { type: Date, default: Date.now },
     monthlyMessageCount: { type: Number, default: 0 },
     lastMonthlyReset: { type: Date, default: Date.now },
-    lastMessageTimestamp: { type: Date, default: Date.now }, // レートリミット用
+    lastMessageTimestamp: { type: Date, default: Date.now },
     watchService: {
         isRegistered: { type: Boolean, default: false },
         emergencyContactNumber: { type: String, default: null },
-        lastContact: { type: Date, default: Date.now }, // 最終連絡日時
-        status: { type: String, enum: ['none', 'awaiting_number'], default: 'none' } // 見守りサービス登録状態
+        lastContact: { type: Date, default: Date.now },
+        status: { type: String, enum: ['none', 'awaiting_number'], default: 'none' }
     },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
 });
-userSchema.index({ userId: 1 }); // userIdにインデックスを作成
+userSchema.index({ userId: 1 });
 const User = mongoose.model('User', userSchema);
 
 const chatLogSchema = new mongoose.Schema({
     userId: { type: String, required: true },
     message: { type: String, required: true },
-    response: { type: String, required: true },
+    response: { type: String, required: true }, // Botの応答も同じログエントリに含める
     timestamp: { type: Date, default: Date.now },
-    modelUsed: { type: String, required: true }
+    modelUsed: { type: String, required: true },
+    role: { type: String, enum: ['user', 'model'], required: true } // ★ ここにroleフィールドを追加しました
 });
-chatLogSchema.index({ userId: 1, timestamp: -1 }); // userIdとtimestampに複合インデックスを作成
+chatLogSchema.index({ userId: 1, timestamp: -1 });
 const ChatLog = mongoose.model('ChatLog', chatLogSchema);
 
 // 定期実行ジョブのスケジューリング
@@ -729,7 +831,7 @@ schedule.scheduleJob('0 0 * * *', async () => {
     const now = moment().tz("Asia/Tokyo");
     try {
         const result = await User.updateMany(
-            { lastDailyReset: { $lt: moment(now).startOf('day').toDate() } }, // 当日より前の日付の場合
+            { lastDailyReset: { $lt: moment(now).startOf('day').toDate() } },
             { $set: { dailyMessageCount: 0, lastDailyReset: now.toDate() } }
         );
         console.log(`Daily reset completed. Matched: ${result.matchedCount}, Modified: ${result.modifiedCount}`);
@@ -744,7 +846,7 @@ schedule.scheduleJob('0 0 1 * *', async () => {
     const now = moment().tz("Asia/Tokyo");
     try {
         const result = await User.updateMany(
-            { lastMonthlyReset: { $lt: moment(now).startOf('month').toDate() } }, // 当月より前の日付の場合
+            { lastMonthlyReset: { $lt: moment(now).startOf('month').toDate() } },
             { $set: { monthlyMessageCount: 0, lastMonthlyReset: now.toDate() } }
         );
         console.log(`Monthly reset completed. Matched: ${result.matchedCount}, Modified: ${result.modifiedCount}`);
@@ -773,13 +875,6 @@ schedule.scheduleJob('0 9 * * *', async () => {
                         text: `【NPO法人コネクト：安否確認サービス】\nご登録のユーザー様（LINE ID: ${user.userId.substring(0, 8)}...）より、3日間LINEでの連絡が途絶えております。念のため、安否をご確認いただけますでしょうか。\n\nこのメッセージは、ご登録時に承諾いただいた見守りサービスに基づき送信しております。\n\n※このメッセージに返信しても、ご本人様には届きません。`,
                     };
                     try {
-                        // 緊急連絡先にPushメッセージを送信
-                        // Note: LINE IDはそのままpushMessageのtoとして使えない可能性があるため、
-                        // 必要であれば、LINE IDからUserIdを取得するAPIを別途利用するか、
-                        // 事前に登録する緊急連絡先をLINE UserIdにしておくなどの工夫が必要。
-                        // 現状はemergencyContactNumberがLINEのUserIdまたはGroupIdと仮定して記述。
-                        // もし電話番号の場合は、SMS送信サービスなど別途連携が必要。
-                        // ここでは最もシンプルなLINEメッセージとして実装。
                         await client.pushMessage(user.watchService.emergencyContactNumber, message);
                         console.log(`Sent safety check message to ${user.watchService.emergencyContactNumber} for user ${user.userId}`);
                     } catch (pushError) {
@@ -805,7 +900,6 @@ app.listen(PORT, () => {
 });
 
 // RenderのFreeプランでサーバーがスリープしないように、定期的に自分自身にリクエストを送る
-// 参考: https://render.com/docs/free#always-on
 setInterval(() => {
     http.get(`http://localhost:${PORT}`);
     console.log('Sent keep-alive request.');
