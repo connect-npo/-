@@ -1,33 +1,28 @@
-// config.js
+// index.js
 
-require('dotenv').config(); // .envファイルの環境変数を読み込む
+const express = require('express');
+const { Client, middleware } = require('@line/bot-sdk');
+const mongoose = require('mongoose');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const schedule = require('node-schedule');
+const moment = require('moment-timezone');
+const { v4: uuidv4 } = require('uuid'); // UUID生成用
+const http = require('http'); // サーバーのKeep-Alive用
 
-// LINE BOTの認証情報
-const CHANNEL_ACCESS_TOKEN = process.env.CHANNEL_ACCESS_TOKEN;
-const CHANNEL_SECRET = process.env.CHANNEL_SECRET;
-
-// Google Gemini APIキー
+// 環境変数から読み込む設定 (YOUR_CHANNEL_ACCESS_TOKEN など、以前の名前を使用)
+const YOUR_CHANNEL_ACCESS_TOKEN = process.env.YOUR_CHANNEL_ACCESS_TOKEN;
+const YOUR_CHANNEL_SECRET = process.env.YOUR_CHANNEL_SECRET;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-
-// MongoDB接続URI
-const MONGODB_URI = process.env.MONGODB_URI;
-
-// 管理者ユーザーID (複数設定可能)
+const MONGODB_URI = process.env.MONGO_URI; // Renderの環境変数名に合わせて修正
 const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? process.env.BOT_ADMIN_IDS.split(',') : [];
-
-// 理事長ID（緊急連絡用）
 const OWNER_USER_ID = process.env.OWNER_USER_ID;
-
-// オフィサーグループID（緊急連絡用）
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 
-// メッセージ長制限
-const MAX_MESSAGE_LENGTH = 400;
+// その他、ボットの動作に関する設定
+const MAX_MESSAGE_LENGTH = 400; // AIの応答メッセージの最大文字数
+const RATE_LIMIT_SECONDS = 3;   // 同一ユーザーからのメッセージ間隔制限（秒）
 
-// レートリミット設定 (秒)
-const RATE_LIMIT_SECONDS = 0; // ここを0に設定し、レートリミットを無効化
-
-// 会員種別ごとの設定
+// 会員種別ごとの設定 (回数制限は全て -1 で無制限)
 const MEMBERSHIP_CONFIG = {
     guest: {
         model: "gemini-1.5-flash",
@@ -81,11 +76,14 @@ const MEMBERSHIP_CONFIG = {
     }
 };
 
-// 危険ワードリスト
+// 危険ワードリスト (見守りサービス関連ワードを含む)
 const DANGER_WORDS = [
     "自殺", "死にたい", "殺す", "助けて", "消えたい", "リスカ", "OD",
     "オーバードーズ", "死んでやる", "いなくなりたい", "自殺未遂", "殺してくれ",
-    "しにたい", "ころす", "助けてほしい", "自傷行為"
+    "しにたい", "ころす", "助けてほしい", "自傷行為",
+    "監禁", "暴行", "虐待", "誘拐", "行方不明", "危険な場所", "家に帰りたくない",
+    "逃げたい", "性暴力", "性的被害", "薬物", "ドラッグ", "犯罪", "逮捕",
+    "いじめ", "無視される", "仲間はずれ", "苦しい", "つらい", "しんどい", "助けて"
 ];
 
 // 詐欺ワードリスト
@@ -99,7 +97,7 @@ const SCAM_WORDS = [
     "〇〇万円差し上げます", "連絡ください", "振込", "送金先"
 ];
 
-// ★詐欺フレーズリスト (部分一致)
+// 詐欺フレーズリスト (部分一致)
 const SCAM_PHRASES = [
     "当選しました", "無料プレゼント", "高額当選", "受け取り口座", "クリックしてください",
     "個人情報入力", "電話してください", "投資で稼ぐ", "絶対儲かる", "必ず儲かる",
@@ -117,7 +115,10 @@ const STRICT_INAPPROPRIATE_WORDS = [
     "手コキ", "パイズリ", "フェラチオ", "クンニリングス", "オーラルセックス",
     "性器", "ペニス", "クリトリス", "アナル", "肛門", "おっぱい", "お尻",
     "股間", "局部", "下半身", "局部", "ちんこ", "まんこ", "死ね", "殺すぞ",
-    "バカ", "アホ", "クソ", "ブス", "デブ", "キモい", "ウザい", "カス", "ボケ"
+    "バカ", "アホ", "クソ", "ブス", "デブ", "キモい", "ウザい", "カス", "ボケ",
+    "レイシスト", "差別", "暴力", "犯罪者", "キチガイ", "ゴミ", "役立たず",
+    "死ね", "殺す", "馬鹿", "アホ", "ブサイク", "デブ", "キモい", "ウザい", "カス", "ボケ",
+    "クズ", "使えない", "いらない", "消えろ", "最低", "最悪", "うんこ", "ちんちん", "おまんこ"
 ];
 
 // 宿題トリガーワードリスト
@@ -164,26 +165,41 @@ const SPECIAL_REPLIES = {
     "日本語がおかしい": "わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖"
 };
 
-module.exports = {
-    CHANNEL_ACCESS_TOKEN,
-    CHANNEL_SECRET,
-    GEMINI_API_KEY,
-    MONGODB_URI,
-    BOT_ADMIN_IDS,
-    OWNER_USER_ID,
-    OFFICER_GROUP_ID,
-    MAX_MESSAGE_LENGTH,
-    RATE_LIMIT_SECONDS,
-    MEMBERSHIP_CONFIG,
-    DANGER_WORDS,
-    SCAM_WORDS,
-    SCAM_PHRASES,
-    STRICT_INAPPROPRIATE_WORDS,
-    HOMEWORK_TRIGGER_WORDS,
-    ORGANIZATION_INQUIRY_WORDS,
-    SPECIAL_REPLIES
-};
-// flex_messages.js
+// ユーティリティ関数（inlin化）
+function containsDangerWords(message) {
+    return DANGER_WORDS.some(word => message.includes(word));
+}
+
+function containsScamWords(message) {
+    return SCAM_WORDS.some(word => message.includes(word));
+}
+
+function containsScamPhrases(message) {
+    return SCAM_PHRASES.some(phrase => message.includes(phrase));
+}
+
+function containsStrictInappropriateWords(message) {
+    return STRICT_INAPPROPRIATE_WORDS.some(word => message.includes(word));
+}
+
+function containsHomeworkTriggerWords(message) {
+    return HOMEWORK_TRIGGER_WORDS.some(word => message.includes(word));
+}
+
+function containsOrganizationInquiryWords(message) {
+    return ORGANIZATION_INQUIRY_WORDS.some(word => message.includes(word));
+}
+
+function checkSpecialReply(message) {
+    for (const [trigger, reply] of Object.entries(SPECIAL_REPLIES)) {
+        if (message.includes(trigger)) {
+            return reply;
+        }
+    }
+    return null;
+}
+
+// Flex Message定義（inlin化）
 
 // 見守りサービスガイドのFlex Message
 const watchServiceGuideFlex = {
@@ -191,137 +207,106 @@ const watchServiceGuideFlex = {
     altText: "見守りサービスのご案内",
     contents: {
         type: "bubble",
-        hero: {
-            type: "image",
-            url: "https://example.com/watch_service_hero.jpg", // 仮の画像URL。適切なものに変更してください
-            size: "full",
-            aspectRatio: "20:13",
-            aspectMode: "cover",
-            action: {
-                type: "uri",
-                label: "Action",
-                uri: "https://connect-npo.org/watch-service" // 見守りサービスの詳細ページなど
-            }
-        },
         body: {
             type: "box",
             layout: "vertical",
             contents: [
                 {
                     type: "text",
-                    text: "見守りサービスのご案内🌸",
+                    text: "🌸 見守りサービスのご案内 🌸",
                     weight: "bold",
-                    size: "xl",
+                    size: "md",
                     align: "center",
-                    color: "#FF69B4" // ピンク色
-                },
-                {
-                    type: "box",
-                    layout: "vertical",
-                    margin: "lg",
-                    spacing: "sm",
-                    contents: [
-                        {
-                            type: "text",
-                            text: "一人暮らしや、ご家族と離れて暮らす方が、もしもの時に備えて緊急連絡先を登録できるサービスだよ。",
-                            wrap: true,
-                            color: "#555555",
-                            size: "sm"
-                        },
-                        {
-                            type: "text",
-                            text: "わたしから定期的に「元気かな？」ってメッセージを送るから、元気なら「OKだよ💖」って返信してね。",
-                            wrap: true,
-                            color: "#555555",
-                            size: "sm"
-                        },
-                        {
-                            type: "text",
-                            text: "もし、わたしからのメッセージに一定期間応答がなかった場合、ご登録いただいた緊急連絡先に自動で通知するよ。",
-                            wrap: true,
-                            color: "#555555",
-                            size: "sm"
-                        }
-                    ]
+                    color: "#EEA0A0"
                 },
                 {
                     type: "separator",
                     margin: "md"
                 },
                 {
-                    type: "box",
-                    layout: "vertical",
-                    margin: "md",
-                    spacing: "sm",
-                    contents: [
-                        {
-                            type: "button",
-                            action: {
-                                type: "postback",
-                                label: "見守りサービスに登録する",
-                                data: "action=watch_register",
-                                displayText: "見守りサービスに登録します！"
-                            },
-                            style: "primary",
-                            color: "#FF69B4" // ピンク色
-                        },
-                        {
-                            type: "button",
-                            action: {
-                                type: "postback",
-                                label: "見守りサービスを解除する",
-                                data: "action=watch_unregister",
-                                displayText: "見守りサービスを解除します。"
-                            },
-                            style: "secondary",
-                            color: "#D3D3D3" // グレー
-                        }
-                    ]
-                }
-            ]
-        }
-    }
-};
-
-// 見守りサービス登録完了通知のFlex Message (電話番号を動的に挿入)
-const watchServiceNoticeConfirmedFlex = (emergencyContactNumber) => ({
-    type: "flex",
-    altText: "見守りサービス登録完了！",
-    contents: {
-        type: "bubble",
-        body: {
-            type: "box",
-            layout: "vertical",
-            contents: [
-                {
                     type: "text",
-                    text: "✨見守りサービス登録完了！✨",
-                    weight: "bold",
-                    size: "xl",
-                    align: "center",
-                    color: "#FF69B4"
-                },
-                {
-                    type: "text",
-                    text: `緊急連絡先として「${emergencyContactNumber}」を登録したよ！`,
-                    wrap: true,
-                    margin: "md",
-                    size: "md",
-                    align: "center"
-                },
-                {
-                    type: "text",
-                    text: "定期的にわたしから「元気かな？」ってメッセージを送るね。",
+                    text: "いつもありがとう💖 NPO法人コネクトの皆守こころです。\n\n私達は、毎日LINEであなたと交流することで、あなたの安否確認を行う「見守りサービス」を提供しています。",
                     wrap: true,
                     margin: "md",
                     size: "sm"
                 },
                 {
                     type: "text",
-                    text: "もし元気なら「OKだよ💖」って返信してね。3日間返信がない場合は、登録された緊急連絡先に通知するからね。安心してわたしに任せてね🌸",
+                    text: "もし３日間あなたからの連絡が途絶えた場合、事前に登録していただいた緊急連絡先（ご家族など）へLINEで安否確認のメッセージを送信します。",
                     wrap: true,
+                    margin: "md",
                     size: "sm",
                     color: "#555555"
+                },
+                {
+                    type: "text",
+                    text: "このサービスは、遠く離れたご家族が心配な方、一人暮らしで何かあった時に備えたい方に特におすすめです。",
+                    wrap: true,
+                    margin: "md",
+                    size: "sm",
+                    color: "#555555"
+                },
+                {
+                    type: "text",
+                    text: "※このサービスは無料会員以上でご利用いただけます。",
+                    wrap: true,
+                    margin: "md",
+                    size: "xs",
+                    color: "#AAAAAA"
+                }
+            ]
+        },
+        footer: {
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents: [
+                {
+                    type: "button",
+                    style: "primary",
+                    height: "sm",
+                    action: {
+                        type: "postback",
+                        label: "見守りサービスに登録する",
+                        data: "action=watch_register",
+                        displayText: "見守りサービスに登録します！"
+                    },
+                    color: "#FF6B6B"
+                },
+                {
+                    type: "button",
+                    style: "secondary",
+                    height: "sm",
+                    action: {
+                        type: "postback",
+                        label: "見守りサービスを解除する",
+                        data: "action=watch_unregister",
+                        displayText: "見守りサービスを解除します。"
+                    },
+                    color: "#CCCCCC"
+                }
+            ]
+        }
+    }
+};
+
+// 見守りサービス登録完了通知のFlex Message
+const watchServiceNoticeConfirmedFlex = (emergencyContactNumber) => ({
+    type: "flex",
+    altText: "見守りサービス登録完了",
+    contents: {
+        type: "bubble",
+        body: {
+            type: "box",
+            layout: "vertical",
+            contents: [
+                {
+                    type: "text",
+                    text: "🎉 見守りサービス登録完了 🎉",
+                    weight: "bold",
+                    size: "md",
+                    align: "center",
+                    color: "#8BBE77"
                 },
                 {
                     type: "separator",
@@ -329,109 +314,106 @@ const watchServiceNoticeConfirmedFlex = (emergencyContactNumber) => ({
                 },
                 {
                     type: "text",
-                    text: "📞 緊急連絡先を変更したい場合、または見守りサービスを解除したい場合は、いつでも「見守り」と送ってね。",
+                    text: `見守りサービスへのご登録が完了しました！\n\nもし3日間あなたからの連絡が途絶えた場合、登録いただいた緊急連絡先（${emergencyContactNumber}）へLINEで安否確認のご連絡をいたします。`,
                     wrap: true,
-                    size: "xs",
-                    color: "#AAAAAA",
-                    margin: "md"
+                    margin: "md",
+                    size: "sm"
+                },
+                {
+                    type: "text",
+                    text: "これで、もしもの時も安心だね😊\nいつでも私に話しかけてね💖",
+                    wrap: true,
+                    margin: "md",
+                    size: "sm",
+                    color: "#555555"
                 }
             ]
         }
     }
 });
 
-
-// 緊急連絡（危険ワード用）のFlex Message
+// 緊急連絡が必要な場合のFlex Message
 const emergencyFlex = {
     type: "flex",
-    altText: "緊急連絡先",
+    altText: "緊急メッセージ",
     contents: {
         type: "bubble",
-        hero: {
-            type: "image",
-            url: "https://example.com/emergency_hero.jpg", // 仮の画像URL。適切なものに変更してください
-            size: "full",
-            aspectRatio: "20:13",
-            aspectMode: "cover",
-            action: {
-                type: "uri",
-                label: "Action",
-                uri: "https://connect-npo.org/emergency-contacts" // 緊急連絡先の詳細ページなど
-            }
-        },
         body: {
             type: "box",
             layout: "vertical",
             contents: [
                 {
                     type: "text",
-                    text: "🚨 緊急連絡のお願い 🚨",
+                    text: "🚨 緊急連絡 🚨",
                     weight: "bold",
-                    size: "xl",
+                    size: "md",
                     align: "center",
-                    color: "#FF0000" // 赤色
-                },
-                {
-                    type: "box",
-                    layout: "vertical",
-                    margin: "lg",
-                    spacing: "sm",
-                    contents: [
-                        {
-                            type: "text",
-                            text: "あなたが危険な状況にいるかもしれません。一人で抱え込まず、すぐに下記の専門機関に相談してください。",
-                            wrap: true,
-                            color: "#555555",
-                            size: "sm"
-                        },
-                        {
-                            type: "text",
-                            text: "あなたの安全が第一です。勇気を出して連絡してください。",
-                            wrap: true,
-                            color: "#555555",
-                            size: "sm"
-                        }
-                    ]
+                    color: "#FF0000"
                 },
                 {
                     type: "separator",
                     margin: "md"
                 },
                 {
+                    type: "text",
+                    text: "まつさんからのメッセージに、とても心配な内容が含まれていました。\n\n一人で抱え込まず、すぐに信頼できる人や専門機関に相談してください。",
+                    wrap: true,
+                    margin: "md",
+                    size: "sm"
+                },
+                {
+                    type: "text",
+                    text: "下記は、公的な相談窓口です。あなたの安全が最優先です。",
+                    wrap: true,
+                    margin: "md",
+                    size: "sm",
+                    color: "#555555"
+                },
+                {
                     type: "box",
                     layout: "vertical",
-                    margin: "md",
                     spacing: "sm",
+                    margin: "md",
                     contents: [
                         {
                             type: "button",
+                            style: "link",
+                            height: "sm",
                             action: {
                                 type: "uri",
-                                label: "こども110番 (警察庁)",
-                                uri: "tel:110"
-                            },
-                            style: "primary",
-                            color: "#FF0000"
+                                label: "いのちの電話（相談）",
+                                uri: "tel:0570064556"
+                            }
                         },
                         {
                             type: "button",
+                            style: "link",
+                            height: "sm",
                             action: {
                                 type: "uri",
-                                label: "こどもホットライン (文部科学省)",
-                                uri: "tel:0120007110" // 24時間子供SOSダイヤル
-                            },
-                            style: "primary",
-                            color: "#FF0000"
+                                label: "こども家庭庁（相談先リスト）",
+                                uri: "https://www.cfa.go.jp/councils/kodomo/child-consultation/"
+                            }
                         },
                         {
                             type: "button",
+                            style: "link",
+                            height: "sm",
                             action: {
                                 type: "uri",
-                                label: "チャイルドライン",
-                                uri: "tel:0120997777"
-                            },
-                            style: "primary",
-                            color: "#FF0000"
+                                label: "警察相談専用電話",
+                                uri: "tel:9110"
+                            }
+                        },
+                        {
+                            type: "button",
+                            style: "link",
+                            height: "sm",
+                            action: {
+                                type: "uri",
+                                label: "＃９１１０（警察庁ウェブサイト）",
+                                uri: "https://www.npa.go.jp/bunya/seian/madoguchi/9110.html"
+                            }
                         }
                     ]
                 }
@@ -440,87 +422,68 @@ const emergencyFlex = {
     }
 };
 
-// 詐欺連絡（詐欺ワード用）のFlex Message
+// 詐欺警告のFlex Message
 const scamFlex = {
     type: "flex",
-    altText: "詐欺にご注意ください",
+    altText: "詐欺警告",
     contents: {
         type: "bubble",
-        hero: {
-            type: "image",
-            url: "https://example.com/scam_alert_hero.jpg", // 仮の画像URL。適切なものに変更してください
-            size: "full",
-            aspectRatio: "20:13",
-            aspectMode: "cover",
-            action: {
-                type: "uri",
-                label: "Action",
-                uri: "https://connect-npo.org/scam-prevention" // 詐欺対策の詳細ページなど
-            }
-        },
         body: {
             type: "box",
             layout: "vertical",
             contents: [
                 {
                     type: "text",
-                    text: "⚠️ 詐欺にご注意ください ⚠️",
+                    text: "⚠️ 詐欺の可能性について ⚠️",
                     weight: "bold",
-                    size: "xl",
+                    size: "md",
                     align: "center",
-                    color: "#FFA500" // オレンジ色
-                },
-                {
-                    type: "box",
-                    layout: "vertical",
-                    margin: "lg",
-                    spacing: "sm",
-                    contents: [
-                        {
-                            type: "text",
-                            text: "このメッセージは詐欺の可能性があります。個人情報やお金に関わることは、絶対に一人で判断せず、信頼できる人に相談してください。",
-                            wrap: true,
-                            color: "#555555",
-                            size: "sm"
-                        },
-                        {
-                            type: "text",
-                            text: "困った時は、下記の専門機関に相談してください。",
-                            wrap: true,
-                            color: "#555555",
-                            size: "sm"
-                        }
-                    ]
+                    color: "#FFD700"
                 },
                 {
                     type: "separator",
                     margin: "md"
                 },
                 {
+                    type: "text",
+                    text: "送信されたメッセージに、詐欺につながる可能性のある言葉が含まれていました。\n\n個人情報や金銭を要求するようなメッセージには、絶対に返信したり、指示に従ったりしないでください。",
+                    wrap: true,
+                    margin: "md",
+                    size: "sm"
+                },
+                {
+                    type: "text",
+                    text: "もし不安なことがあれば、すぐに身近な人や公的な相談窓口に相談してください。",
+                    wrap: true,
+                    margin: "md",
+                    size: "sm",
+                    color: "#555555"
+                },
+                {
                     type: "box",
                     layout: "vertical",
-                    margin: "md",
                     spacing: "sm",
+                    margin: "md",
                     contents: [
                         {
                             type: "button",
+                            style: "link",
+                            height: "sm",
                             action: {
                                 type: "uri",
-                                label: "警察相談専用電話 #9110",
-                                uri: "tel:0335010110" // 警察相談専用電話
-                            },
-                            style: "primary",
-                            color: "#FFA500"
+                                label: "消費者ホットライン",
+                                uri: "tel:188"
+                            }
                         },
                         {
                             type: "button",
+                            style: "link",
+                            height: "sm",
                             action: {
                                 type: "uri",
-                                label: "国民生活センター",
-                                uri: "tel:0570060555" // 消費者ホットライン 188も検討
-                            },
-                            style: "primary",
-                            color: "#FFA500"
+                                label: "警察相談専用電話",
+                                uri: "tel:9110"
+                            }
                         }
                     ]
                 }
@@ -529,163 +492,19 @@ const scamFlex = {
     }
 };
 
-module.exports = {
-    watchServiceGuideFlex,
-    watchServiceNoticeConfirmedFlex,
-    emergencyFlex,
-    scamFlex
-};
-// utils.js
-
-const {
-    DANGER_WORDS,
-    SCAM_WORDS,
-    SCAM_PHRASES,
-    STRICT_INAPPROPRIATE_WORDS,
-    HOMEWORK_TRIGGER_WORDS,
-    ORGANIZATION_INQUIRY_WORDS,
-    SPECIAL_REPLIES
-} = require('./config'); // config.jsからワードリストと固定返信を読み込む
-
-/**
- * メッセージが危険ワードを含むかチェックする
- * @param {string} message - ユーザーからのメッセージ
- * @returns {boolean} - 危険ワードが含まれていればtrue
- */
-function containsDangerWords(message) {
-    const lowerCaseMessage = message.toLowerCase(); // 小文字に変換して比較
-    return DANGER_WORDS.some(word => lowerCaseMessage.includes(word));
-}
-
-/**
- * メッセージが詐欺ワードを含むかチェックする
- * @param {string} message - ユーザーからのメッセージ
- * @returns {boolean} - 詐欺ワードが含まれていればtrue
- */
-function containsScamWords(message) {
-    const lowerCaseMessage = message.toLowerCase(); // 小文字に変換して比較
-    return SCAM_WORDS.some(word => lowerCaseMessage.includes(word));
-}
-
-/**
- * メッセージが詐欺フレーズを含むかチェックする
- * @param {string} message - ユーザーからのメッセージ
- * @returns {boolean} - 詐欺フレーズが含まれていればtrue
- */
-function containsScamPhrases(message) {
-    const lowerCaseMessage = message.toLowerCase(); // 小文字に変換して比較
-    return SCAM_PHRASES.some(phrase => lowerCaseMessage.includes(phrase));
-}
-
-/**
- * メッセージが不適切ワードを含むかチェックする (より厳格なチェック)
- * @param {string} message - ユーザーからのメッセージ
- * @returns {boolean} - 不適切ワードが含まれていればtrue
- */
-function containsStrictInappropriateWords(message) {
-    const lowerCaseMessage = message.toLowerCase();
-    return STRICT_INAPPROPRIATE_WORDS.some(word => lowerCaseMessage.includes(word));
-}
-
-/**
- * メッセージが宿題トリガーワードを含むかチェックする
- * @param {string} message - ユーザーからのメッセージ
- * @returns {boolean} - 宿題トリガーワードが含まれていればtrue
- */
-function containsHomeworkTriggerWords(message) {
-    const lowerCaseMessage = message.toLowerCase();
-    return HOMEWORK_TRIGGER_WORDS.some(word => lowerCaseMessage.includes(word));
-}
-
-/**
- * メッセージがNPO法人コネクトに関する問い合わせワードを含むかチェックする
- * @param {string} message - ユーザーからのメッセージ
- * @returns {boolean} - NPO法人コネクトに関する問い合わせワードが含まれていればtrue
- */
-function containsOrganizationInquiryWords(message) {
-    const lowerCaseMessage = message.toLowerCase();
-    return ORGANIZATION_INQUIRY_WORDS.some(word => lowerCaseMessage.includes(word));
-}
-
-/**
- * 固定返信のワードが含まれているかチェックし、該当する返信を返す
- * @param {string} message - ユーザーからのメッセージ
- * @returns {string|null} - 該当する固定返信があればその文字列、なければnull
- */
-function checkSpecialReply(message) {
-    const trimmedMessage = message.trim();
-    return SPECIAL_REPLIES[trimmedMessage] || null;
-}
-
-module.exports = {
-    containsDangerWords,
-    containsScamWords,
-    containsScamPhrases,
-    containsStrictInappropriateWords,
-    containsHomeworkTriggerWords,
-    containsOrganizationInquiryWords,
-    checkSpecialReply
-};
-// index.js
-
-const express = require('express');
-const { Client, middleware } = require('@line/bot-sdk');
-const mongoose = require('mongoose');
-const { GoogleGenerativeAI } = require("@google/generative-ai");
-const schedule = require('node-schedule');
-const moment = require('moment-timezone');
-const { v4: uuidv4 } = require('uuid'); // UUID生成用
-const http = require('http'); // サーバーのKeep-Alive用
-
-const {
-    CHANNEL_ACCESS_TOKEN,
-    CHANNEL_SECRET,
-    GEMINI_API_KEY,
-    MONGODB_URI,
-    BOT_ADMIN_IDS,
-    OWNER_USER_ID,
-    OFFICER_GROUP_ID,
-    MAX_MESSAGE_LENGTH,
-    RATE_LIMIT_SECONDS,
-    MEMBERSHIP_CONFIG,
-    DANGER_WORDS, // config.jsからインポート
-    SCAM_WORDS,
-    SCAM_PHRASES,
-    STRICT_INAPPROPRIATE_WORDS,
-    HOMEWORK_TRIGGER_WORDS,
-    ORGANIZATION_INQUIRY_WORDS,
-    SPECIAL_REPLIES
-} = require('./config'); // 設定ファイルを読み込み
-
-const {
-    containsDangerWords,
-    containsScamWords,
-    containsScamPhrases,
-    containsStrictInappropriateWords,
-    containsHomeworkTriggerWords, // utils.jsで定義されている関数名
-    containsOrganizationInquiryWords, // utils.jsで定義されている関数名
-    checkSpecialReply
-} = require('./utils'); // ユーティリティ関数を読み込み
-
-const {
-    watchServiceGuideFlex,
-    watchServiceNoticeConfirmedFlex,
-    emergencyFlex,
-    scamFlex
-} = require('./flex_messages'); // Flex Message定義を読み込み
-
 // MongoDBモデルのインポート (これらのモデルが別途定義されていることを前提とします)
-const User = require('./models/User'); // models/User.js のパスを仮定
-const ChatLog = require('./models/ChatLog'); // models/ChatLog.js のパスを仮定
-const WatchService = require('./models/WatchService'); // models/WatchService.js のパスを仮定
+// User.js, ChatLog.js, WatchService.js が index.js と同じ階層にあることを想定
+const User = require('./models/User');
+const ChatLog = require('./models/ChatLog');
+const WatchService = require('./models/WatchService');
 
 // GoogleGenerativeAIの初期化
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 // LINE BOTクライアントとミドルウェア
 const client = new Client({
-    channelAccessToken: CHANNEL_ACCESS_TOKEN,
-    channelSecret: CHANNEL_SECRET,
+    channelAccessToken: YOUR_CHANNEL_ACCESS_TOKEN, // 修正
+    channelSecret: YOUR_CHANNEL_SECRET, // 修正
 });
 
 const app = express();
@@ -697,8 +516,8 @@ mongoose.connect(MONGODB_URI)
 
 // LINEミドルウェア
 app.use('/webhook', middleware({
-    channelAccessToken: CHANNEL_ACCESS_TOKEN,
-    channelSecret: CHANNEL_SECRET,
+    channelAccessToken: YOUR_CHANNEL_ACCESS_TOKEN, // 修正
+    channelSecret: YOUR_CHANNEL_SECRET, // 修正
 }));
 
 // ヘルスチェックエンドポイント (Renderのヘルスチェック用)
@@ -786,7 +605,7 @@ async function handleEvent(event) {
     // ユーザーの会員種別に応じて設定を適用
     const userConfig = MEMBERSHIP_CONFIG[user.membership] || MEMBERSHIP_CONFIG.guest;
 
-    // メッセージ回数制限チェック
+    // メッセージ回数制限チェック (回数制限は廃止のため、実質的に動作しないがコードは残す)
     if (!isAdmin && userConfig.dailyLimit !== -1 && user.dailyMessageCount > userConfig.dailyLimit) {
         await client.replyMessage(replyToken, { type: 'text', text: userConfig.exceedDailyLimitMessage });
         return Promise.resolve(null);
@@ -1045,9 +864,15 @@ app.listen(PORT, () => {
 
 // Herokuなどの場合、pingを定期的に送ることでスリープ回避
 setInterval(() => {
-    http.get('http://' + process.env.RENDER_EXTERNAL_HOSTNAME, (res) => {
-        console.log(`ヘルスチェック応答: ${res.statusCode}`);
-    }).on('error', (e) => {
-        console.error(`ヘルスチェックエラー: ${e.message}`);
-    });
+    // Renderのサービス名が環境変数に設定されていることを想定
+    const hostname = process.env.RENDER_EXTERNAL_HOSTNAME;
+    if (hostname) {
+        http.get('http://' + hostname, (res) => {
+            console.log(`ヘルスチェック応答: ${res.statusCode}`);
+        }).on('error', (e) => {
+            console.error(`ヘルスチェックエラー: ${e.message}`);
+        });
+    } else {
+        console.warn('RENDER_EXTERNAL_HOSTNAME 環境変数が設定されていません。スリープ回避機能が動作しない可能性があります。');
+    }
 }, 5 * 60 * 1000); // 5分ごとにping
