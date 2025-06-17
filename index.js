@@ -25,14 +25,14 @@ const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
 const MAX_MESSAGE_LENGTH = 400;
 
 // レートリミット設定 (秒)
-const RATE_LIMIT_SECONDS = 5; // 5秒に設定
+const RATE_LIMIT_SECONDS = 0; // ここを0に設定し、レートリミットを無効化
 
 // 会員種別ごとの設定
 const MEMBERSHIP_CONFIG = {
     guest: {
         model: "gemini-1.5-flash",
-        dailyLimit: 5, // 1日のメッセージ制限
-        monthlyLimit: 30, // 1ヶ月のメッセージ制限
+        dailyLimit: -1, // 制限なしに変更
+        monthlyLimit: -1, // 制限なしに変更
         isChildAI: true, // 子供向けAI設定
         canUseWatchService: false, // 見守りサービス利用可否
         exceedDailyLimitMessage: "ごめんね💦 今日はもうお話しできる回数がいっぱいになったみたい🌸 明日また話しかけてくれると嬉しいな💖 無料会員登録をすると、もっとたくさんお話しできるようになるよ😊",
@@ -41,8 +41,8 @@ const MEMBERSHIP_CONFIG = {
     },
     registered: { // 無料会員
         model: "gemini-1.5-flash",
-        dailyLimit: 10,
-        monthlyLimit: 100,
+        dailyLimit: -1, // 制限なしに変更
+        monthlyLimit: -1, // 制限なしに変更
         isChildAI: true,
         canUseWatchService: true,
         exceedDailyLimitMessage: "ごめんね💦 今日はもうお話しできる回数がいっぱいになったみたい🌸 明日また話しかけてくれると嬉しいな💖 寄付会員になると、もっとたくさんお話しできるようになるよ😊",
@@ -51,8 +51,8 @@ const MEMBERSHIP_CONFIG = {
     },
     subscriber: { // サブスク会員
         model: "gemini-1.5-pro", // Proモデル利用
-        dailyLimit: -1, // 制限なし
-        monthlyLimit: 500, // 月間500回までProモデル
+        dailyLimit: -1, // 制限なしに変更
+        monthlyLimit: -1, // 制限なしに変更
         isChildAI: false, // 成人向けAI設定
         canUseWatchService: true,
         exceedDailyLimitMessage: "ごめんね💦 今日はもうお話しできる回数がいっぱいになったみたい🌸 明日また話しかけてくれると嬉しいな💖", // サブスクは日次制限なしのため、基本表示されない
@@ -61,8 +61,8 @@ const MEMBERSHIP_CONFIG = {
     },
     donor: { // 寄付会員
         model: "gemini-1.5-pro", // Proモデル利用
-        dailyLimit: -1, // 制限なし
-        monthlyLimit: -1, // 制限なし
+        dailyLimit: -1, // 制限なしに変更
+        monthlyLimit: -1, // 制限なしに変更
         isChildAI: false, // 成人向けAI設定
         canUseWatchService: true,
         exceedDailyLimitMessage: "ごめんね💦 今日はもうお話しできる回数がいっぱいになったみたい🌸 明日また話しかけてくれると嬉しいな💖", // 寄付は制限なしのため、基本表示されない
@@ -71,8 +71,8 @@ const MEMBERSHIP_CONFIG = {
     },
     admin: { // 管理者
         model: "gemini-1.5-pro", // Proモデル利用
-        dailyLimit: -1, // 制限なし
-        monthlyLimit: -1, // 制限なし
+        dailyLimit: -1, // 制限なしに変更
+        monthlyLimit: -1, // 制限なしに変更
         isChildAI: false, // 成人向けAI設定
         canUseWatchService: true,
         exceedDailyLimitMessage: "", // 管理者は制限なし
