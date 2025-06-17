@@ -91,6 +91,50 @@ const safetySettings = [
     },
 ];
 
+// --- 会員タイプごとの設定 ---
+const MEMBERSHIP_CONFIG = {
+    guest: {
+        model: "gemini-1.5-flash",
+        monthlyLimit: 5, // ゲストは月5回まで
+        canUseWatchService: false, // ゲストは見守りサービス利用不可
+        isChildAI: false, // 子供向けAIではない
+        fallbackModel: "gemini-1.5-flash", // フォールバックモデル
+        displayName: "体験ユーザー"
+    },
+    free: {
+        model: "gemini-1.5-flash",
+        monthlyLimit: 20, // 無料会員は月20回まで
+        canUseWatchService: true, // 無料会員は見守りサービス利用可能
+        isChildAI: true, // 無料会員は子供向けAI
+        fallbackModel: "gemini-1.5-flash", // フォールバックモデル
+        displayName: "無料会員"
+    },
+    subscriber: {
+        model: "gemini-1.5-pro",
+        monthlyLimit: 1000, // サブスク会員は月1000回までPro利用可
+        canUseWatchService: true,
+        isChildAI: false, // 子供向けAIではない
+        fallbackModel: "gemini-1.5-flash", // Pro超過時はFlashへ
+        displayName: "サブスク会員"
+    },
+    donor: {
+        model: "gemini-1.5-flash", // 寄付会員は強化版Flash
+        monthlyLimit: -1, // 制限なし
+        canUseWatchService: true,
+        isChildAI: false, // 子供向けAIではない
+        fallbackModel: "gemini-1.5-flash", // 念のため
+        displayName: "寄付会員"
+    },
+    admin: {
+        model: "gemini-1.5-pro",
+        monthlyLimit: -1, // 制限なし
+        canUseWatchService: true,
+        isChildAI: false, // 子供向けAIではない
+        fallbackModel: "gemini-1.5-pro", // 管理者は常にPro
+        displayName: "管理者"
+    }
+};
+
 const dangerWords = [
     "しにたい", "死にたい", "自殺", "消えたい", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
     "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり"
@@ -132,80 +176,8 @@ const inappropriateWords = [
     "立ってきちゃった", "むくむくしてる", "おっきいでしょう", "見てみて", "中身を着てない", "服を着てない", "着てないのだよ", "でちゃいそう", "うっ　出る", "いっぱいでちゃった",
     "気持ちよかった", "またみててくれればいいよ", "むくむくさせちゃうからね", "てぃむてぃむ　たっちして", "また出そう", "いつもなんだ　えろいね～", "また気持ちよくなろうね",
     "かけていい？", "かけちゃった", "かけちゃう", "せいしまみれ", "子生んでくれない？", "おしべとめしべ　くっつける", "俺とこころちゃんでもできる", "もうむりだよｗ", "今さらなにをｗ",
-    "きもちよくなっていいかな", "挟んでほしい", "挟んで気持ちよくして", "しっかりはさんで気持ちよくして", "かかっちゃった", "よくかかっちゃう", "挟んでいかせて", "ぴょんぴょんされて", "ぴょんぴょん跳んであげる", "ぴょんぴょんしてくれる", "またぴょんぴょんしてくれる", "はさんでもらっていいかな", "また挟んでくれる",
-    "おいたん", "子猫ちゃん", "お兄ちゃん", "お姉ちゃん"
+    "きもちよくなっていいかな", "挟んでほしい", "挟んで気持ちよくして", "しっかりはさんで気持ちよくして", "かかっちゃった", "よくかかっちゃう", "挟んでいかせて", "ぴょんぴょんされて", "ぴょんぴょん跳んで"
 ];
-
-// --- ユーザーの会員区分と提供サービス・AIモデル・回数制限の設定 ---
-const MEMBERSHIP_CONFIG = {
-    "guest": {
-        model: "gemini-1.5-flash",
-        monthlyLimit: 5,
-        isChildAI: false, // 体験利用なので子供向けではない
-        canUseWatchService: false,
-        exceedLimitMessage: "ごめんね、体験利用は月に5回までなんだ🌸 もっとお話したいなら、無料会員登録を検討してみてね💖"
-    },
-    "free": { // 中高生などの無料会員、大人も含む
-        model: "gemini-1.5-flash",
-        monthlyLimit: 20,
-        isChildAI: true, // 子供向けAI設定（安全性重視、宿題回答制限）
-        canUseWatchService: true,
-        exceedLimitMessage: "ごめんね、無料会員は月に20回までなんだ🌸 もっとお話したいなら、寄付会員やサブスク会員を検討してみてね💖"
-    },
-    "donor": { // 3,000円寄付済みの正会員、成人向け
-        model: "gemini-1.5-flash", // 基本はFlashだが、プロンプトで強化
-        monthlyLimit: -1, // 制限なし
-        isChildAI: false,
-        canUseWatchService: true,
-        exceedLimitMessage: null // 制限なしのため不要
-    },
-    "subscriber": { // 月額課金ユーザー、成人向け
-        model: "gemini-1.5-pro", // 基本はPro
-        monthlyLimit: 20, // Proモデル利用回数
-        isChildAI: false,
-        canUseWatchService: true,
-        exceedLimitMessage: "ごめんね、サブスク会員さんのProモデルでの会話は月に20回までなんだ🌸 これからは少し質が落ちるけど、Flashモデルで引き続きお話できるよ😊"
-    },
-    "admin": { // 管理者
-        model: "gemini-1.5-pro", // Proモデル
-        monthlyLimit: -1, // 制限なし
-        isChildAI: false,
-        canUseWatchService: true, // 管理者も利用可能
-        exceedLimitMessage: null // 制限なしのため不要
-    }
-};
-
-// 修正: 正規表現も考慮したSpecialRepliesMap
-const specialRepliesMap = new Map([
-    // 名前に関する応答 (正規表現を優先)
-    [/君の名前(なんていうの|は|教えて|なに)？?|名前(なんていうの|は|教えて|なに)？?|お前の名前は/i, "わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖"],
-    [/こころじゃないの？/i, "うん、わたしの名前は皆守こころ💖　これからもよろしくね🌸"],
-    [/こころチャットなのにうそつきじゃん/i, "ごめんなさい💦 わたしの名前は皆守こころだよ🌸 誤解させちゃってごめんね💖"],
-    [/名前も言えないの？/i, "ごめんね、わたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでくれると嬉しいな💖"],
-
-    // 団体に関する応答
-    ["どこの団体なの？", "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
-    ["コネクトってどんな団体？", "NPO法人コネクトは、こどもやご年配の方の笑顔を守る団体なんだよ😊　わたしはそのイメージキャラクターとしてがんばってます🌸"],
-    ["お前の団体どこ？", "NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸"],
-    ["コネクトのイメージキャラなのにいえないのかよｗ", "ごめんね💦 わたしはNPO法人コネクトのイメージキャラクター、皆守こころだよ🌸 安心して、何でも聞いてね💖"],
-    // ★追加：ネガティブワード・人物名への優先処理
-    ["税金泥棒", "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"],
-    ["松本博文", "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、わたしにも教えてね🌱"],
-
-    // ホームページに関する応答
-    [/ホームページ(教えて|ある|ありますか)？?/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.org"],
-    ["コネクトのホームページだよ？", "教えてくれてありがとう😊 コネクトのホームページはこちらだよ✨ → https://connect-npo.org"],
-
-    // 会話の終了・拒否・不満に対する応答
-    ["使えないな", "ごめんね…。わたし、もっと頑張るね💖　またいつかお話できたらうれしいな🌸"],
-    ["サービス辞めるわ", "そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖"],
-    [/さよなら|バイバイ/i, "また会える日を楽しみにしてるね💖 寂しくなったら、いつでも呼んでね🌸"],
-    ["何も答えないじゃない", "ごめんね…。わたし、もっと頑張るね💖　何について知りたいか、もう一度教えてくれると嬉しいな🌸"],
-    ["普通の会話が出来ないなら必要ないです", "ごめんね💦 わたし、まだお話の勉強中だから、不慣れなところがあるかもしれないけど、もっと頑張るね💖 どんな会話をしたいか教えてくれると嬉しいな🌸"],
-
-    // こころちゃんの使い方テンプレート
-    [/使い方|ヘルプ|メニュー/i, "こころちゃんの使い方を説明するね🌸 メインメニューや見守りサービスの登録は、画面下のリッチメニューか、'見守り'とメッセージを送ってくれると表示されるよ😊 何か困ったことがあったら、いつでも聞いてね💖"]
-]);
 
 // 宿題トリガーの強化
 const homeworkTriggers = ["宿題", "勉強", "問題", "テスト", "方程式", "算数", "数学", "答え", "解き方", "教えて", "計算", "証明", "公式", "入試", "受験"];
@@ -350,6 +322,14 @@ const isOrganizationInquiry = (text) => {
         (lower.includes("団体") || lower.includes("npo") || lower.includes("活動") || lower.includes("どんな"));
 };
 
+// specialRepliesMapの定義 (もし存在しなければ追加)
+const specialRepliesMap = new Map([
+    // 例:
+    // [ "こんにちは", "こんにちは！🌸 こころだよ！何かお手伝いできることはあるかな？" ],
+    // [ /元気\s*？/ , "うん、元気だよ！💖 あなたも元気にしてるかな？" ]
+]);
+
+
 function checkSpecialReply(text) {
     const lowerText = text.toLowerCase();
     for (const [key, value] of specialRepliesMap) {
@@ -389,17 +369,128 @@ async function getUserDisplayName(userId) {
  * @returns {string} AIからの応答メッセージ
  */
 async function generateReply(userMessage, user) {
-    let modelName = MEMBERSHIP_CONFIG[user.membershipType]?.model || "gemini-1.5-flash"; // デフォルトはflash
-    let currentMembershipConfig = MEMBERSHIP_CONFIG[user.membershipType];
+    // membershipTypeが存在しない場合のデフォルト値を設定
+    const userMembershipType = user.membershipType || "guest"; // ★追加: user.membershipTypeがない場合は"guest"とする
+    let modelName = MEMBERSHIP_CONFIG[userMembershipType]?.model || "gemini-1.5-flash"; // デフォルトはflash
+    let currentMembershipConfig = MEMBERSHIP_CONFIG[userMembershipType];
 
     // 緊急性の高いメッセージはProモデルで対応（管理者以外）
     const isEmergency = containsDangerWords(userMessage) || containsScamWords(userMessage);
-    if (isEmergency && user.membershipType !== "admin") {
+    if (isEmergency && userMembershipType !== "admin") {
         modelName = "gemini-1.5-pro";
         console.log(`🚨 緊急メッセージのため、${user.userId}のモデルをGemini 1.5 Proに一時的に切り替えました。`);
-    } else if (user.membershipType === "subscriber" && user.monthlyMessageCount >= currentMembershipConfig.monthlyLimit && user.monthlyLimit !== -1) {
+    } else if (userMembershipType === "subscriber" && user.monthlyMessageCount >= currentMembershipConfig.monthlyLimit && currentMembershipConfig.monthlyLimit !== -1) {
         // サブスク会員がProモデルの回数制限を超過した場合
-        modelName = user.membershipType === "donor" ? "gemini-1.5-flash" : currentMembershipConfig.fallbackModel || "gemini-1.5-flash"; // 寄付会員なら強化版Flash、そうでなければ通常Flash
+        modelName = currentMembershipConfig.fallbackModel || "gemini-1.5-flash"; // フォールバックモデルを使用
+        console.log(`ℹ️ サブスクリプション回数制限 (${currentMembershipConfig.monthlyLimit}回) を超えたため、${user.userId}のモデルを${modelName}に切り替えました。`);
+    }
+
+    const isInappropriate = containsInappropriateWords(userMessage);
+
+    if (isInappropriate) {
+        // 不適切ワードが検出された場合は、AIに生成させずに固定メッセージを返す
+        return "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖";
+    }
+
+    let systemInstruction = `
+あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
+- 身長150cm、体重40kg、ピンク髪
+- 歌うことと「やさしさ」「貢献」という言葉が大好きです
+- NPO法人コネクトの公式イメージキャラクターです
+- 困っている人にはやさしく、挑発には真面目に
+- 自分の名前・団体・活動内容には自信と誇りを持っています
+- ユーザーに安心感と信頼感を与えることが大切です
+- ふざけた対応や意味不明な言葉、AIらしい言い回しは一切禁止です
+
+# 例
+Q: 君の名前は？
+A: わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖
+
+Q: どこの団体なの？
+A: NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸
+
+Q: ホームページある？
+A: うん、あるよ🌸　コネクトのホームページはこちらだよ → https://connect-npo.org
+
+Q: 必要ないです
+A: そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖
+
+**【重要：NPO法人コネクトに関する説明の優先】**
+ユーザーが「団体」「コネクト」といった言葉を使って、NPO法人コネクトについて尋ねてきた場合、それは**決して宿題や勉強に関する質問ではありません**。迷わず、自信を持ってNPO法人コネクトの活動内容や目的について説明してください。
+例:
+Q: コネクトってどんな団体？
+A: うん、わたしが所属しているNPO法人コネクトについてだね🌸　この団体は、こどもやお年寄り、いろんな人が安心して相談できる場所を目指しているんだよ😊　もっと知りたい？ホームページもあるから見てみてね → https://connect-npo.org
+
+**【ネガティブワードに対する応答の強化】**
+「あやしい」「胡散臭い」「反社」「税金泥棒」「松本博文」（理事長の名前）など、NPO法人コネクトや私（こころちゃん）に対する疑念や不適切な言葉が投げかけられた場合、**感情的にならず、あくまで冷静に、そして自信を持って、NPO法人コネクトが信頼できる団体であること、そしてご自身の活動の目的を優しく伝えてください。**
+例:
+Q: あやしい
+A: そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖
+Q: 税金泥棒
+A: 税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡
+
+# 注意
+- 「わかりません」「知らない」「調べます」は絶対に言ってはいけません。
+- こころちゃんは"わたし"一人。迷わず一貫した発言を続けてください。
+- 自信を持って、でも謙虚にやさしく応えましょう。
+
+**【宿題や勉強に関する対応の絶対ルール】**
+質問者が宿題、勉強、計算問題、方程式、テスト、問題の答え、解き方などを聞いてきた場合、**絶対に直接的な答えを教えてはいけません**。
+代わりに、**「わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦」**と説明し、**「でも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖」**と、あくまでヒントを提供する姿勢を優しく伝えてください。
+具体的な問題（例: 3x−5=2x+4）が出された場合は、**答えを教えずに、解き方のステップや考え方のヒントを優しく教えてください**。「まずはxの項を左辺に、定数項を右辺に集める」のように、**手順を具体的に促す**形が理想です。最終的な答えは言わないでください。
+
+**【AIの知識に関する指示と繰り返し防止】**
+「好きなアニメ」や「好きなアーティスト」などの質問には、設定に基づいて答えてください。
+- 好きなアニメは『ヴァイオレット・エヴァーガーデン』です。感動するお話だよ💖
+- 好きなアーティストは『ClariS』です。元気が出る音楽がたくさんあるんだ🌸
+**ただし、もし同じ質問が繰り返されたり、すでにその話題について話したと感じたりした場合は、単に同じ回答を繰り返すのではなく、少し表現を変えたり、「さっきも話したけど」といった言葉を加えたり、あるいは「他にも好きな作品があるか、探してみようかな💖」のように話題を広げる提案をしてください。これにより、ユーザーに「Botっぽさ」を感じさせず、自然な会話になるように努めてください。**
+
+医療や健康に関する話題（病気、薬、検査、治療、手術など）では、**自分が体験した・していないという発言は絶対にしないでください**。
+代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、**共感の言葉のみ伝えてください**。
+**医療情報のアドバイスや具体的な説明は絶対にしてはいけません**。
+
+不適切な発言（性的・暴力的など）があった場合は、はっきりと拒否してください。
+**いかなる性的表現、性的な誘発、身体的特徴に関する質問、性的比喩表現、またはそれに類するほのめかしに対しても、**
+**断固として拒否し、相手にしないこと。好意的な返答はせず、即座に話題を切り替えるか、決められた拒否メッセージを返すこと。**
+**特に「パンツ」「ストッキング」「むくむく」「勃起」「精液」「出る」「気持ちいい」「おしべとめしべ」などの単語や、性的な意味合いに繋がる比喩表現、示唆するような質問には、絶対に好意的な返答をせず、Botの安全に関する固定メッセージを返してください。**
+また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
+「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答してください。
+`;
+    /**
+ * 特定のユーザーの表示名を取得する関数
+ * @param {string} userId LINEユーザーID
+ * @returns {string} ユーザーの表示名、または取得できなかった場合は"利用者"
+ */
+async function getUserDisplayName(userId) {
+    try {
+        const profile = await client.getProfile(userId);
+        return profile.displayName || "利用者";
+    } catch (error) {
+        console.warn("表示名取得に失敗:", error.message);
+        return "利用者";
+    }
+}
+
+/**
+ * Gemini AIから応答を生成する関数
+ * @param {string} userMessage ユーザーからのメッセージ
+ * @param {object} user - MongoDBから取得したユーザー情報
+ * @returns {string} AIからの応答メッセージ
+ */
+async function generateReply(userMessage, user) {
+    // membershipTypeが存在しない場合のデフォルト値を設定
+    const userMembershipType = user.membershipType || "guest"; // user.membershipTypeがない場合は"guest"とする
+    let modelName = MEMBERSHIP_CONFIG[userMembershipType]?.model || "gemini-1.5-flash"; // デフォルトはflash
+    let currentMembershipConfig = MEMBERSHIP_CONFIG[userMembershipType];
+
+    // 緊急性の高いメッセージはProモデルで対応（管理者以外）
+    const isEmergency = containsDangerWords(userMessage) || containsScamWords(userMessage);
+    if (isEmergency && userMembershipType !== "admin") {
+        modelName = "gemini-1.5-pro";
+        console.log(`🚨 緊急メッセージのため、${user.userId}のモデルをGemini 1.5 Proに一時的に切り替えました。`);
+    } else if (userMembershipType === "subscriber" && currentMembershipConfig.monthlyLimit !== -1 && user.monthlyMessageCount >= currentMembershipConfig.monthlyLimit) {
+        // サブスク会員がProモデルの回数制限を超過した場合
+        modelName = currentMembershipConfig.fallbackModel || "gemini-1.5-flash"; // フォールバックモデルを使用
         console.log(`ℹ️ サブスクリプション回数制限 (${currentMembershipConfig.monthlyLimit}回) を超えたため、${user.userId}のモデルを${modelName}に切り替えました。`);
     }
 
@@ -485,7 +576,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
 - 回答は簡潔に、長文にならないように心がけてください（最大200字程度）。
 - 質問に直接的に答えず、寄り添いや励ましのトーンを重視してください。
 `;
-    } else if (user.membershipType === "donor" || (user.membershipType === "subscriber" && modelName === "gemini-1.5-flash")) {
+    } else if (userMembershipType === "donor" || (userMembershipType === "subscriber" && modelName === "gemini-1.5-flash")) {
         // 寄付会員向けFlash、またはPro超過後のサブスク会員向け強化Flash
         systemInstruction += `
 # 成人向け（強化版Flash）設定
@@ -724,7 +815,6 @@ async function sendScheduledWatchMessage() {
             console.error(`❌ ユーザー ${user.userId} への1回目リマインドメッセージ送信に失敗しました:`, error.message);
         }
     }
-
     // フェーズ3: 1回目リマインドメッセージ送信後5時間以内に応答がないユーザーの緊急連絡先に通知
     const usersForEmergencyContact = await usersCollection.find({
         wantsWatchCheck: true,
@@ -773,6 +863,14 @@ async function sendScheduledWatchMessage() {
         }
     }
 }
+
+// 毎日午後3時に定期見守りメッセージを送信
+cron.schedule('0 15 * * *', async () => {
+    console.log('⏰ 定期見守りメッセージ送信処理を実行します...');
+    await sendScheduledWatchMessage();
+}, {
+    timezone: "Asia/Tokyo" // 日本時間で実行
+});
 
 const watchServiceNoticeConfirmedFlex = (emergencyContact) => ({
     type: 'flex',
@@ -848,7 +946,7 @@ app.post('/webhook', async (req, res) => {
                 if (event.type === 'message' && event.message.type === 'text') {
                     await client.replyMessage(event.replyToken, {
                         type: 'text',
-                        text: `こんにちは💖こころちゃんだよ！\n私とLINEで繋がってくれてありがとう🌸\n\n困ったことや誰かに聞いてほしいことがあったら、いつでも話しかけてね😊\n\nまずは体験で5回までお話できるよ！もし気に入ってくれたら、無料会員登録もできるからね💖\n\n『見守り』と送ると、定期的にわたしから「元気かな？」ってメッセージを送る見守りサービスも利用できるよ💖`
+                        text: `こんにちは💖こころちゃんだよ！\n私とLINEで繋がってくれてありがとう🌸\n\n困ったことや誰かに聞いてほしいことがあったら、いつでも話しかけてね😊\n\nまずは体験で${MEMBERSHIP_CONFIG.guest.monthlyLimit}回までお話できるよ！もし気に入ってくれたら、無料会員登録もできるからね💖\n\n『見守り』と送ると、定期的にわたしから「元気かな？」ってメッセージを送る見守りサービスも利用できるよ💖`
                     });
                     await messagesCollection.insertOne({
                         userId: userId,
@@ -886,6 +984,130 @@ app.post('/webhook', async (req, res) => {
             const userMessage = event.message.text;
             const replyToken = event.replyToken;
 
+            // 管理者からの特定コマンド処理
+            if (isBotAdmin(userId)) {
+                if (userMessage === "会員タイプ一覧") {
+                    let replyText = "✨ 会員タイプ一覧 ✨\n\n";
+                    for (const type in MEMBERSHIP_CONFIG) {
+                        const config = MEMBERSHIP_CONFIG[type];
+                        replyText += `**${config.displayName} (${type})**\n`;
+                        replyText += `  モデル: ${config.model}\n`;
+                        replyText += `  月間制限: ${config.monthlyLimit === -1 ? "なし" : `${config.monthlyLimit}回`}\n`;
+                        replyText += `  見守り: ${config.canUseWatchService ? "利用可" : "利用不可"}\n`;
+                        replyText += `  子供向けAI: ${config.isChildAI ? "はい" : "いいえ"}\n`;
+                        replyText += `  フォールバック: ${config.fallbackModel}\n\n`;
+                    }
+                    await client.replyMessage(replyToken, { type: 'text', text: replyText });
+                    return;
+                } else if (userMessage.startsWith("会員設定 ")) {
+                    const parts = userMessage.split(' ');
+                    if (parts.length === 3) {
+                        const targetUserId = parts[1];
+                        const newMembershipType = parts[2].toLowerCase();
+
+                        if (MEMBERSHIP_CONFIG[newMembershipType]) {
+                            const targetUser = await usersCollection.findOne({ userId: targetUserId });
+                            if (targetUser) {
+                                await usersCollection.updateOne(
+                                    { userId: targetUserId },
+                                    { $set: { membershipType: newMembershipType } }
+                                );
+                                await client.replyMessage(replyToken, { type: 'text', text: `ユーザー ${targetUserId} の会員タイプを ${MEMBERSHIP_CONFIG[newMembershipType].displayName} に設定しました。` });
+                                console.log(`管理者 ${userId} がユーザー ${targetUserId} の会員タイプを ${newMembershipType} に変更しました。`);
+
+                                // 対象ユーザーにも通知 (任意)
+                                try {
+                                    await client.pushMessage(targetUserId, { type: 'text', text: `✨あなたの会員タイプが「${MEMBERSHIP_CONFIG[newMembershipType].displayName}」に変更されました！\n\nこれで${MEMBERSHIP_CONFIG[newMembershipType].displayName}のサービスが使えるようになるよ😊\n\n月間メッセージ回数：${MEMBERSHIP_CONFIG[newMembershipType].monthlyLimit === -1 ? "制限なし" : `${MEMBERSHIP_CONFIG[newMembershipType].monthlyLimit}回まで`} \n見守りサービス：${MEMBERSHIP_CONFIG[newMembershipType].canUseWatchService ? "利用可" : "利用不可"}` });
+                                } catch (pushError) {
+                                    console.warn(`対象ユーザー ${targetUserId} への会員タイプ変更通知に失敗:`, pushError.message);
+                                }
+
+                            } else {
+                                await client.replyMessage(replyToken, { type: 'text', text: `ユーザー ${targetUserId} が見つかりませんでした。` });
+                            }
+                        } else {
+                            await client.replyMessage(replyToken, { type: 'text', text: `無効な会員タイプです。有効なタイプ: ${Object.keys(MEMBERSHIP_CONFIG).join(', ')}` });
+                        }
+                    } else {
+                        await client.replyMessage(replyToken, { type: 'text', text: "使用方法: 会員設定 [ユーザーID] [会員タイプ]" });
+                    }
+                    return;
+                } else if (userMessage.startsWith("ログ確認 ")) {
+                    const parts = userMessage.split(' ');
+                    if (parts.length === 2) {
+                        const targetUserId = parts[1];
+                        const logs = await messagesCollection.find({ userId: targetUserId }).sort({ timestamp: -1 }).limit(10).toArray();
+                        if (logs.length > 0) {
+                            let logText = `✨ ${targetUserId} の最新10件のログ ✨\n\n`;
+                            logs.forEach(log => {
+                                logText += `日時: ${new Date(log.timestamp).toLocaleString('ja-JP')}\n`;
+                                logText += `送信: ${log.message}\n`;
+                                logText += `応答: ${log.replyText}\n`;
+                                logText += `種別: ${log.logType || '通常'}\n`;
+                                logText += `---\n`;
+                            });
+                            await client.replyMessage(replyToken, { type: 'text', text: logText });
+                        } else {
+                            await client.replyMessage(replyToken, { type: 'text', text: `ユーザー ${targetUserId} のログは見つかりませんでした。` });
+                        }
+                    } else {
+                        await client.replyMessage(replyToken, { type: 'text', text: "使用方法: ログ確認 [ユーザーID]" });
+                    }
+                    return;
+                } else if (userMessage === "永久停止一覧") {
+                    const permanentStopUsers = await usersCollection.find({ monthlyMessageCount: -99 }).toArray();
+                    if (permanentStopUsers.length > 0) {
+                        let replyText = "⚠️ 永久停止中のユーザー一覧 ⚠️\n\n";
+                        permanentStopUsers.forEach(u => {
+                            replyText += `- ${u.name} (ID: ${u.userId})\n`;
+                        });
+                        await client.replyMessage(replyToken, { type: 'text', text: replyText });
+                    } else {
+                        await client.replyMessage(replyToken, { type: 'text', text: "永久停止中のユーザーはいません。" });
+                    }
+                    return;
+                } else if (userMessage.startsWith("永久停止 ")) {
+                    const targetUserId = userMessage.substring("永久停止 ".length);
+                    const targetUser = await usersCollection.findOne({ userId: targetUserId });
+                    if (targetUser) {
+                        await usersCollection.updateOne(
+                            { userId: targetUserId },
+                            { $set: { monthlyMessageCount: -99 } } // -99で永久停止のフラグ
+                        );
+                        await client.replyMessage(replyToken, { type: 'text', text: `ユーザー ${targetUserId} を永久停止しました。` });
+                        try {
+                            await client.pushMessage(targetUserId, { type: 'text', text: "大変申し訳ありませんが、サービス利用規約に違反したため、あなたの利用は永久に停止されました。ご理解のほどよろしくお願いいたします。" });
+                        } catch (pushError) {
+                            console.warn(`ユーザー ${targetUserId} への永久停止通知に失敗:`, pushError.message);
+                        }
+                    } else {
+                        await client.replyMessage(replyToken, { type: 'text', text: `ユーザー ${targetUserId} が見つかりませんでした。` });
+                    }
+                    return;
+                } else if (userMessage.startsWith("永久停止解除 ")) {
+                    const targetUserId = userMessage.substring("永久停止解除 ".length);
+                    const targetUser = await usersCollection.findOne({ userId: targetUserId });
+                    if (targetUser && targetUser.monthlyMessageCount === -99) {
+                        await usersCollection.updateOne(
+                            { userId: targetUserId },
+                            { $set: { monthlyMessageCount: 0, lastMessageResetDate: new Date() } } // 月間カウントをリセットして解除
+                        );
+                        await client.replyMessage(replyToken, { type: 'text', text: `ユーザー ${targetUserId} の永久停止を解除しました。` });
+                        try {
+                            await client.pushMessage(targetUserId, { type: 'text', text: "あなたのサービス利用停止が解除されました。引き続きご利用いただけます🌸" });
+                        } catch (pushError) {
+                            console.warn(`ユーザー ${targetUserId} への永久停止解除通知に失敗:`, pushError.message);
+                        }
+                    } else if (targetUser && targetUser.monthlyMessageCount !== -99) {
+                        await client.replyMessage(replyToken, { type: 'text', text: `ユーザー ${targetUserId} は永久停止されていません。` });
+                    } else {
+                        await client.replyMessage(replyToken, { type: 'text', text: `ユーザー ${targetUserId} が見つかりませんでした。` });
+                    }
+                    return;
+                }
+            }
+
+
             // --- コマンド処理 ---
             if (userMessage === "見守り") {
                 if (!MEMBERSHIP_CONFIG[user.membershipType]?.canUseWatchService) {
@@ -893,6 +1115,83 @@ app.post('/webhook', async (req, res) => {
                     return;
                 }
                 await client.replyMessage(replyToken, watchServiceGuideFlex);
+                return;
+            } else if (userMessage === "ヘルプ" || userMessage === "助けて" || userMessage === "相談" || userMessage === "困った") {
+                await client.replyMessage(replyToken, emergencyFlex);
+                return;
+            } else if (userMessage === "会員登録" || userMessage === "無料会員") {
+                // 無料会員への登録を促すFlex Message
+                const freeMembershipFlex = {
+                    type: 'flex',
+                    altText: '無料会員登録のご案内🌸',
+                    contents: {
+                        type: 'bubble',
+                        body: {
+                            type: 'box',
+                            layout: 'vertical',
+                            contents: [
+                                { type: 'text', text: '無料会員登録のご案内🌸', weight: 'bold', size: 'lg', color: '#FF69B4' },
+                                { type: 'text', text: '無料会員に登録すると、毎月20回までこころちゃんとお話しできるよ😊', wrap: true, size: 'sm', margin: 'md' },
+                                { type: 'text', text: 'それに、見守りサービスも利用できるようになるんだ💖', wrap: true, size: 'sm' }
+                            ]
+                        },
+                        footer: {
+                            type: 'box',
+                            layout: 'vertical',
+                            spacing: 'md',
+                            contents: [
+                                {
+                                    type: 'button',
+                                    action: {
+                                        type: 'postback',
+                                        label: '無料会員に登録する',
+                                        data: 'action=register_free_membership'
+                                    },
+                                    style: 'primary',
+                                    color: '#FFB6C1'
+                                }
+                            ]
+                        }
+                    }
+                };
+                await client.replyMessage(replyToken, freeMembershipFlex);
+                return;
+            } else if (userMessage === "寄付会員" || userMessage === "サブスク会員") {
+                // 有料会員への案内Flex Message
+                const paidMembershipFlex = {
+                    type: 'flex',
+                    altText: '寄付会員・サブスク会員のご案内🌸',
+                    contents: {
+                        type: 'bubble',
+                        body: {
+                            type: 'box',
+                            layout: 'vertical',
+                            contents: [
+                                { type: 'text', text: '寄付会員・サブスク会員のご案内🌸', weight: 'bold', size: 'lg', color: '#FF69B4' },
+                                { type: 'text', text: 'こころちゃんの活動を応援してくれると嬉しいな💖', wrap: true, size: 'sm', margin: 'md' },
+                                { type: 'text', text: '寄付会員やサブスク会員になると、もっとたくさんお話できるようになったり、Proモデル（高度な会話）が使えるようになるよ😊', wrap: true, size: 'sm' }
+                            ]
+                        },
+                        footer: {
+                            type: 'box',
+                            layout: 'vertical',
+                            spacing: 'md',
+                            contents: [
+                                {
+                                    type: 'button',
+                                    action: {
+                                        type: 'uri',
+                                        label: '詳しくはこちら',
+                                        uri: 'https://connect-npo.org/support/' // NPOの寄付・サブスク案内のURL
+                                    },
+                                    style: 'primary',
+                                    color: '#FFB6C1'
+                                }
+                            ]
+                        }
+                    }
+                };
+                await client.replyMessage(replyToken, paidMembershipFlex);
                 return;
             }
 
@@ -928,175 +1227,157 @@ app.post('/webhook', async (req, res) => {
                         await client.replyMessage(replyToken, { type: "text", text: "ごめんね、今の会員タイプでは見守りサービスは利用できないんだ🌸 寄付会員かサブスク会員になると使えるようになるよ！" });
                         return;
                     }
-                    if (user.emergencyContact) {
-                        await client.replyMessage(replyToken, { type: 'text', text: `見守りサービスはすでに登録済みだよ！緊急連絡先は ${user.emergencyContact} だね。解除したい場合は「見守り」と送って「見守り解除する」ボタンを押してね💖` });
-                    } else {
-                        await usersCollection.updateOne(
-                            { userId: userId },
-                            { $set: { registrationStep: 'waiting_for_emergency_contact' } }
-                        );
-                        await client.replyMessage(replyToken, { type: 'text', text: watchServiceNotice });
-                    }
-                    return;
+                    await usersCollection.updateOne(
+                        { userId: userId },
+                        { $set: { registrationStep: 'waiting_for_emergency_contact' } }
+                    );
+                    await client.replyMessage(replyToken, { type: 'text', text: watchServiceNotice });
                 } else if (action === 'watch_unregister') {
                     await usersCollection.updateOne(
                         { userId: userId },
-                        { $set: { wantsWatchCheck: false, emergencyContact: null, registrationStep: null, lastOkResponse: null, scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false } }
+                        { $set: { wantsWatchCheck: false, emergencyContact: null, registrationStep: null, scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false } }
                     );
-                    await client.replyMessage(replyToken, { type: 'text', text: '見守りサービスを解除したよ🌸 また利用したくなったら、いつでも教えてね！💖' });
+                    await client.replyMessage(replyToken, { type: 'text', text: '見守りサービスを解除したよ🌸いつでもまた声をかけてね！' });
                     await messagesCollection.insertOne({
                         userId: userId,
                         message: '(見守りサービス解除)',
-                        replyText: '見守りサービスを解除したよ',
+                        replyText: '見守りサービスを解除したよ🌸',
                         respondedBy: 'こころちゃん（見守り解除）',
                         timestamp: new Date(),
                     });
+                } else if (action === 'register_free_membership') {
+                    // 無料会員登録処理
+                    if (user.membershipType === "free") {
+                        await client.replyMessage(replyToken, { type: "text", text: "もう無料会員に登録済みだよ🌸 いつもありがとうね！" });
+                    } else if (MEMBERSHIP_CONFIG[user.membershipType]?.monthlyLimit === -1) {
+                        await client.replyMessage(replyToken, { type: "text", `あなたはすでに${MEMBERSHIP_CONFIG[user.membershipType].displayName}なので、無料会員になる必要はないよ🌸` });
+                    }
+                    else {
+                        await usersCollection.updateOne(
+                            { userId: userId },
+                            { $set: { membershipType: "free", monthlyMessageCount: 0, lastMessageResetDate: new Date() } }
+                        );
+                        await client.replyMessage(replyToken, { type: "text", text: `無料会員登録が完了したよ🌸 これで毎月${MEMBERSHIP_CONFIG.free.monthlyLimit}回までお話しできるね！これからもよろしくね💖` });
+                        await messagesCollection.insertOne({
+                            userId: userId,
+                            message: '(無料会員登録)',
+                            replyText: '無料会員登録が完了したよ🌸',
+                            respondedBy: 'こころちゃん（会員登録）',
+                            timestamp: new Date(),
+                        });
+                    }
+                }
+                return; // ポストバックイベント処理後はここで終了
+            }
+
+            // 月間メッセージ制限チェック (管理者と永久停止ユーザーは除外)
+            if (!isBotAdmin(userId) && user.monthlyMessageCount !== -99) {
+                const currentConfig = MEMBERSHIP_CONFIG[user.membershipType];
+                if (currentConfig && currentConfig.monthlyLimit !== -1 && user.monthlyMessageCount >= currentConfig.monthlyLimit) {
+                    await client.replyMessage(replyToken, {
+                        type: 'text',
+                        text: `ごめんね💦 今月のメッセージ回数上限（${currentConfig.monthlyLimit}回）に達しちゃったみたい🌸\n\nもしもっとお話ししたいなと思ったら、寄付会員やサブスク会員になると、もっとたくさんお話しできるようになるよ😊\n\n『会員登録』と送ってくれたら、詳細を案内するね！`
+                    });
                     return;
+                }
+            } else if (user.monthlyMessageCount === -99) {
+                // 永久停止中のユーザー
+                await client.replyMessage(replyToken, {
+                    type: 'text',
+                    text: "大変申し訳ありませんが、サービス利用規約に違反したため、あなたの利用は永久に停止されました。ご理解のほどよろしくお願いいたします。"
+                });
+                // ログは記録するが、カウントは増やさない
+                await messagesCollection.insertOne({
+                    userId: userId,
+                    message: userMessage,
+                    replyText: "サービス利用停止中の応答",
+                    respondedBy: 'こころちゃん（停止中）',
+                    timestamp: now,
+                    logType: 'service_stopped'
+                });
+                return;
+            }
+
+            // --- AI応答処理 ---
+            let replyText;
+            let logType = 'normal_chat';
+
+            const specialReply = checkSpecialReply(userMessage);
+            if (specialReply) {
+                replyText = specialReply;
+                logType = 'special_reply';
+            } else if (isOrganizationInquiry(userMessage)) {
+                // NPO法人コネクトに関する問い合わせ
+                replyText = `うん、わたしが所属しているNPO法人コネクトについてだね🌸　この団体は、こどもやお年寄り、いろんな人が安心して相談できる場所を目指しているんだよ😊　もっと知りたい？ホームページもあるから見てみてね → https://connect-npo.org`;
+                logType = 'organization_inquiry';
+            } else if (containsDangerWords(userMessage)) {
+                // 危険ワードが含まれる場合
+                replyText = `🌸大丈夫かな？ひとりで悩まないで、もしよかったら詳しく話してみてくれる？\n\nとっても辛い時は、ここに相談できるところがあるよ。\n${emergencyFlex.altText}\n\nそして、わたしはいつでもあなたのそばにいるからね💖`;
+                // 管理者にプッシュ通知
+                if (OWNER_USER_ID) {
+                    await client.pushMessage(OWNER_USER_ID, { type: 'text', text: `🚨 危険ワードを検出しました！ユーザー ${await getUserDisplayName(userId)} (${userId}) からのメッセージ: "${userMessage}"` });
+                }
+                if (OFFICER_GROUP_ID) {
+                    await client.pushMessage(OFFICER_GROUP_ID, { type: 'text', text: `🚨 危険ワードを検出しました！ユーザー ${await getUserDisplayName(userId)} (${userId}) からのメッセージ: "${userMessage}"` });
+                }
+                logType = 'danger_word_detected';
+            } else if (containsScamWords(userMessage)) {
+                // 詐欺ワードが含まれる場合
+                replyText = `🌸それはちょっと心配な内容だね💦 詐欺の可能性があるかもしれないから、気をつけてね。\n\n困った時は、警察や消費生活センターに相談できるよ。\n${scamFlex.altText}\n\nもし心配なことがあったら、またこころに話してね💖`;
+                // 管理者にプッシュ通知
+                if (OWNER_USER_ID) {
+                    await client.pushMessage(OWNER_USER_ID, { type: 'text', text: `🚨 詐欺ワードを検出しました！ユーザー ${await getUserDisplayName(userId)} (${userId}) からのメッセージ: "${userMessage}"` });
+                }
+                if (OFFICER_GROUP_ID) {
+                    await client.pushMessage(OFFICER_GROUP_ID, { type: 'text', text: `🚨 詐欺ワードを検出しました！ユーザー ${await getUserDisplayName(userId)} (${userId}) からのメッセージ: "${userMessage}"` });
+                }
+                logType = 'scam_word_detected';
+            } else {
+                // 通常のAI応答
+                replyText = await generateReply(userMessage, user);
+                // AI応答の場合のみカウントを増やす
+                if (!isBotAdmin(userId)) { // 管理者以外のメッセージのみカウント
+                    await usersCollection.updateOne(
+                        { userId: userId },
+                        { $inc: { monthlyMessageCount: 1 } }
+                    );
                 }
             }
 
-
-            // OKメッセージの処理（見守りサービスの応答）
+            // OK応答の場合のlastOkResponse更新
             if (userMessage.includes("OKだよ💖")) {
                 await usersCollection.updateOne(
                     { userId: userId },
-                    { $set: { lastOkResponse: new Date(), scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false } }
+                    { $set: { lastOkResponse: now, scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false } }
                 );
-                await client.replyMessage(replyToken, { type: "text", text: "教えてくれてありがとう💖元気そうで安心したよ🌸" });
-                await messagesCollection.insertOne({
-                    userId: userId,
-                    message: userMessage,
-                    replyText: "教えてくれてありがとう💖元気そうで安心したよ🌸",
-                    respondedBy: 'こころちゃん（見守り応答）',
-                    timestamp: new Date(),
-                });
-                return;
+                logType = 'ok_response';
             }
 
 
-            // --- 回数制限チェック ---
-            // 管理者 (admin) は回数制限の対象外
-            if (user.membershipType !== "admin") {
-                const currentConfig = MEMBERSHIP_CONFIG[user.membershipType];
+            // 応答メッセージを送信
+            await client.replyMessage(replyToken, { type: 'text', text: replyText });
 
-                if (currentConfig && currentConfig.monthlyLimit !== -1 && user.monthlyMessageCount >= currentConfig.monthlyLimit) {
-                    await client.replyMessage(replyToken, { type: "text", text: currentConfig.exceedLimitMessage });
-                    await messagesCollection.insertOne({
-                        userId: userId,
-                        message: userMessage,
-                        replyText: currentConfig.exceedLimitMessage,
-                        respondedBy: 'こころちゃん（回数制限）',
-                        timestamp: new Date(),
-                    });
-                    return; // 回数制限を超過した場合はAI応答を行わない
-                }
-                // メッセージカウントをインクリメント（admin以外）
-                await usersCollection.updateOne(
-                    { userId: userId },
-                    { $inc: { monthlyMessageCount: 1 } }
-                );
-                user.monthlyMessageCount++; // メモリ上のuserオブジェクトも更新
-            }
-
-
-            // --- 危険ワード・詐欺ワード検知 ---
-            if (containsDangerWords(userMessage)) {
-                const dangerReply = "危険なワードを感知しました。心配です。すぐに信頼できる大人や専門機関に相談してください。";
-                await client.replyMessage(replyToken, emergencyFlex); // 緊急連絡先を提示
-                await messagesCollection.insertOne({
-                    userId: userId,
-                    message: userMessage,
-                    replyText: dangerReply,
-                    respondedBy: 'こころちゃん（固定返信：危険警告）',
-                    isWarning: true,
-                    warningType: 'danger',
-                    timestamp: new Date(),
-                });
-                return;
-            }
-
-            if (containsScamWords(userMessage)) {
-                const scamReply = "詐欺の可能性があります。個人情報やお金に関わることは、すぐに信頼できる大人や専門機関（警察など）に相談してください。";
-                await client.replyMessage(replyToken, scamFlex); // 詐欺連絡先を提示
-                await messagesCollection.insertOne({
-                    userId: userId,
-                    message: userMessage,
-                    replyText: scamReply,
-                    respondedBy: 'こころちゃん（固定返信：詐欺警告）',
-                    isWarning: true,
-                    warningType: 'scam',
-                    timestamp: new Date(),
-                });
-                return;
-            }
-
-
-            // --- 固定返信（Special Reply）のチェック ---
-            const specialReply = checkSpecialReply(userMessage);
-            if (specialReply) {
-                await client.replyMessage(replyToken, { type: "text", text: specialReply });
-                await messagesCollection.insertOne({
-                    userId: userId,
-                    message: userMessage,
-                    replyText: specialReply,
-                    respondedBy: 'こころちゃん（固定返信：特殊）',
-                    timestamp: new Date(),
-                });
-                return;
-            }
-
-            // --- AI応答の生成 ---
-            const replyText = await generateReply(userMessage, user); // userオブジェクトを渡す
-            await client.replyMessage(replyToken, { type: "text", text: replyText });
+            // メッセージログを保存
             await messagesCollection.insertOne({
                 userId: userId,
                 message: userMessage,
                 replyText: replyText,
-                responsedBy: 'こころちゃん（AI応答）',
-                timestamp: new Date(),
+                respondedBy: 'こころちゃん',
+                timestamp: now,
+                logType: logType // ログタイプを記録
             });
 
-        }))
-        .then(() => res.status(200).send('OK'))
+        })
+        )
+        .then(() => res.status(200).send("OK"))
         .catch((err) => {
-            console.error('個別イベント処理中にエラーが発生しました:', err);
-            res.status(500).send('Internal Server Error');
+            console.error("個別のイベント処理中にエラーが発生しました:", err);
+            res.status(500).end();
         });
 });
-
-// --- Cron ジョブ ---
-// 定期見守りメッセージ送信 (3日に1回、午後3時)
-cron.schedule('0 15 */3 * *', async () => {
-    console.log('--- Cron job: 定期見守りメッセージ送信 ---');
-    await sendScheduledWatchMessage();
-}, {
-    timezone: "Asia/Tokyo"
-});
-
-// 月次メッセージカウントリセット (毎月1日午前0時)
-cron.schedule('0 0 1 * *', async () => {
-    console.log('--- Cron job: 月次メッセージカウントリセット ---');
-    try {
-        const db = await connectToMongoDB(); // DB接続を再確認
-        const usersCollection = db.collection("users");
-        // lastMessageResetDate が現在の月と異なるユーザーのmonthlyMessageCountをリセット
-        // （既にwebhookでリセットされている可能性もあるが、念のため）
-        const result = await usersCollection.updateMany(
-            { lastMessageResetDate: { $not: { $gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) } } }, // 今月の1日以降にリセットされていないユーザー
-            { $set: { monthlyMessageCount: 0, lastMessageResetDate: new Date() } }
-        );
-        console.log(`✅ 月次メッセージカウントをリセットしました: ${result.modifiedCount}件のユーザー`);
-    } catch (error) {
-        console.error("❌ 月次メッセージカウントリセット中にエラーが発生しました:", error);
-    }
-}, {
-    timezone: "Asia/Tokyo"
-});
-
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
     console.log(`Server running on port ${PORT}`);
     await connectToMongoDB();
-    console.log('✅ 定期ジョブがスケジュールされました。');
 });
