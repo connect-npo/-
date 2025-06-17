@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const { LineClient } = require('messaging-api-line');
+const { Client } = require('@line/bot-sdk'); // ★ここを修正しました
 const { MongoClient } = require('mongodb');
 const cron = require('node-cron'); // スケジューリング用
 
@@ -12,8 +12,8 @@ const config = {
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
-const client = new LineClient(config);
-
+const client = new Client(config); // 
+// ... (以降のコードは変更なし)
 // MongoDBの設定
 const uri = process.env.MONGODB_URI;
 const dbName = process.env.MONGODB_DB_NAME || 'kokoro_bot_db'; // 環境変数がない場合はデフォルト値を使用
