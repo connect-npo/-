@@ -481,7 +481,7 @@ async function handleEvent(event) {
                 replyText = "見守りサービスを解除したよ🌸 また利用したくなったら「見守りサービス」と話しかけてね😊";
             }
             // Postbackに対するBotの応答をログに記録
-            await ChatLog.create({ userId, message: `[Postback Action: ${action}]`, response: replyText, modelUsed: "System/Postback", role: 'user' }); // Postbackはユーザーアクション
+            await ChatLog.create({ userId, message: `[Postback Action: ${action}]`, response: replyText, modelUsed: "System/Postback", role: 'model' }); // Postbackに対する返信なのでrole: 'model'
             await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
             return Promise.resolve(null); // Postback処理後、ここで終了
         }
@@ -530,17 +530,9 @@ async function handleEvent(event) {
     let replyText = '';
     let modelUsed = '';
     let isSystemReply = false; // システムが直接返信するかどうかのフラグ
+    let userMessageHandledBySystem = false; // ユーザーメッセージがシステムで処理されたか
 
     // === ここからメッセージ処理ロジック ===
-
-    // ユーザーメッセージを最初にログに保存（応答は後で更新）
-    const userChatEntry = await ChatLog.create({
-        userId,
-        message: userMessage,
-        response: '', // 初期値
-        modelUsed: '', // 初期値
-        role: 'user'
-    });
 
     // 固定返信のチェック
     const specialReply = checkSpecialReply(userMessage);
@@ -548,6 +540,7 @@ async function handleEvent(event) {
         replyText = specialReply;
         modelUsed = "FixedReply";
         isSystemReply = true;
+        userMessageHandledBySystem = true;
     }
     // 見守りサービス関連コマンドの処理 (テキストメッセージの場合)
     else if (userMessage === "見守りサービス") {
@@ -558,10 +551,10 @@ async function handleEvent(event) {
             await client.replyMessage(replyToken, watchServiceGuideFlex);
             isSystemReply = true; // Flex Messageを返信したので、通常のテキスト返信は行わない
             modelUsed = "System/WatchServiceGuide";
-            // ユーザーメッセージに対する応答をログに記録
-            userChatEntry.response = "見守りサービスガイド表示";
-            userChatEntry.modelUsed = modelUsed;
-            await userChatEntry.save();
+            userMessageHandledBySystem = true;
+            // ログはここで完結させる
+            await ChatLog.create({ userId, message: userMessage, response: "見守りサービスガイド表示", modelUsed: modelUsed, role: 'user' });
+            await ChatLog.create({ userId, message: "見守りサービスガイド表示", response: userMessage, modelUsed: modelUsed, role: 'model' }); // Bot応答を別途保存
             return Promise.resolve(null); // ここで処理終了
         }
     }
@@ -576,10 +569,10 @@ async function handleEvent(event) {
             await client.replyMessage(replyToken, watchServiceNoticeConfirmedFlex(contactNumber));
             isSystemReply = true; // Flex Messageを返信したので、通常のテキスト返信は行わない
             modelUsed = "System/WatchServiceContactRegistered";
-            // ユーザーメッセージに対する応答をログに記録
-            userChatEntry.response = "見守りサービス連絡先登録完了";
-            userChatEntry.modelUsed = modelUsed;
-            await userChatEntry.save();
+            userMessageHandledBySystem = true;
+            // ログはここで完結させる
+            await ChatLog.create({ userId, message: userMessage, response: "見守りサービス連絡先登録完了", modelUsed: modelUsed, role: 'user' });
+            await ChatLog.create({ userId, message: "見守りサービス連絡先登録完了", response: userMessage, modelUsed: modelUsed, role: 'model' }); // Bot応答を別途保存
             return Promise.resolve(null); // ここで処理終了
         } else {
             replyText = "ごめんね💦 それは電話番号かLINE IDじゃないみたい…。もう一度、緊急連絡先を教えてくれるかな？😊";
@@ -588,15 +581,17 @@ async function handleEvent(event) {
     }
     // 危険ワードチェック (見守りサービス登録済みのユーザーのみ)
     else if (user.watchService.isRegistered && containsDangerWords(userMessage)) {
-        await client.replyMessage(replyToken, { type: "text", text: `心配なメッセージを受け取りました。あなたは今、大丈夫？もし苦しい気持ちを抱えているなら、一人で抱え込まず、信頼できる人に話したり、専門の相談窓口に連絡してみてくださいね。${OFFICER_GROUP_ID ? `NPO法人コネクトの担当者にも通知しました。` : ''}あなたの安全が最優先です。` });
+        const dangerReply = `心配なメッセージを受け取りました。あなたは今、大丈夫？もし苦しい気持ちを抱えているなら、一人で抱え込まず、信頼できる人に話したり、専門の相談窓口に連絡してみてくださいね。${OFFICER_GROUP_ID ? `NPO法人コネクトの担当者にも通知しました。` : ''}あなたの安全が最優先です。`;
+        await client.replyMessage(replyToken, { type: "text", text: dangerReply });
         if (OFFICER_GROUP_ID) {
             await client.pushMessage(OFFICER_GROUP_ID, { type: "text", text: `🚨 緊急アラート 🚨\nユーザー ${userId} から危険な内容のメッセージを受信しました。\nメッセージ: ${userMessage}\n` });
         }
         isSystemReply = true;
         modelUsed = "System/DangerWords";
-        userChatEntry.response = "危険ワード検知";
-        userChatEntry.modelUsed = modelUsed;
-        await userChatEntry.save();
+        userMessageHandledBySystem = true;
+        // ログはここで完結させる
+        await ChatLog.create({ userId, message: userMessage, response: "危険ワード検知", modelUsed: modelUsed, role: 'user' });
+        await ChatLog.create({ userId, message: dangerReply, response: userMessage, modelUsed: modelUsed, role: 'model' }); // Bot応答を別途保存
         return Promise.resolve(null);
     }
     // 詐欺ワードチェック
@@ -607,9 +602,10 @@ async function handleEvent(event) {
         }
         isSystemReply = true;
         modelUsed = "System/ScamWords";
-        userChatEntry.response = "詐欺ワード検知";
-        userChatEntry.modelUsed = modelUsed;
-        await userChatEntry.save();
+        userMessageHandledBySystem = true;
+        // ログはここで完結させる
+        await ChatLog.create({ userId, message: userMessage, response: "詐欺ワード検知", modelUsed: modelUsed, role: 'user' });
+        await ChatLog.create({ userId, message: "緊急メッセージ表示", response: userMessage, modelUsed: modelUsed, role: 'model' }); // Bot応答を別途保存
         return Promise.resolve(null);
     }
     // 不適切ワードチェック
@@ -628,7 +624,7 @@ async function handleEvent(event) {
         modelUsed = "System/OrganizationInquiry";
     }
     // Gemini AIとの連携 (上記いずれの条件にも当てはまらない場合)
-    else {
+    if (!userMessageHandledBySystem) { // システムで処理されなかった場合のみGeminiを呼び出す
         try {
             const currentMembershipConfig = MEMBERSHIP_CONFIG[user.membership];
             const isChildAI = currentMembershipConfig && currentMembershipConfig.isChildAI;
@@ -640,26 +636,31 @@ async function handleEvent(event) {
                 chatModel = genAI.getGenerativeModel({ model: userMembershipConfig.model });
             }
 
-            // 過去のチャットログをユーザーIDで検索し、タイムスタンプ昇順で取得（最新10件）
-            // 現在のユーザーメッセージは既に`userChatEntry`としてログに保存されているため、その前のログを取得
-            const rawHistory = await ChatLog.find({ userId: userId, _id: { $ne: userChatEntry._id } })
+            // 過去のチャットログをユーザーIDで検索し、タイムスタンプ昇順で取得
+            // ここでは現在のユーザーメッセージは含まない。
+            const rawHistory = await ChatLog.find({ userId: userId })
                 .sort({ timestamp: 1 })
-                .limit(9); // ユーザーメッセージを除いた過去9件を取得し、合計10件の履歴になるように調整
+                .limit(20); // 会話の流れを考慮し、多めに取得（例: 20件）
 
             const geminiChatHistory = [];
             for (const log of rawHistory) {
-                if (log.role === 'user' && log.message) { // ユーザーメッセージ
+                // ユーザーのメッセージとBotの応答を交互に追加
+                // ChatLogスキーマが `message` と `response` を持つことを前提に、
+                // `role` フィールドも適切に利用して履歴を整形する
+                if (log.role === 'user' && log.message) {
                     geminiChatHistory.push({
                         role: 'user',
                         parts: [{ text: log.message }]
                     });
-                    if (log.response && log.response !== '') { // そのユーザーメッセージに対するBotの応答
+                    if (log.response && log.response !== '') { // Botの応答があれば
                         geminiChatHistory.push({
                             role: 'model',
                             parts: [{ text: log.response }]
                         });
                     }
-                } else if (log.role === 'model' && log.message) { // Botの応答（稀なケースだが、もしあれば）
+                } else if (log.role === 'model' && log.message) {
+                    // もし過去のログが `role: 'model'` から始まる場合（例：システムからの最初のメッセージなど）
+                    // または、userの応答のないmodelメッセージの場合
                     geminiChatHistory.push({
                         role: 'model',
                         parts: [{ text: log.message }]
@@ -667,44 +668,21 @@ async function handleEvent(event) {
                 }
             }
 
-            // Geminiとのチャットセッションを開始
-            // historyの最後の要素がuserになっている場合があるため、ここで調整が必要
-            // GeminiのstartChatは履歴の最初の要素が 'user' であることを期待する。
-            // また、sendMessageを呼ぶ直前のhistoryの最後の要素が 'model' であることを期待する。
-            // これを確実にするため、historyを適切に整形するか、
-            // もしhistoryの最後のロールが'user'なら、その直前の'model'までをhistoryとし、
-            // 現在の'userMessage'をsendMessageに渡す。
-            // あるいは、historyは空にし、キャラクター設定をsendMessageのプロンプトに含める。
-
-            // シンプルなエラー回避策として、historyを空にするか、
-            // 履歴の最後に必ずAIの応答が来るように調整することが考えられますが、
-            // あなたの指示の通り`role: user`を最初に入れる使い方を尊重します。
-            // そのためには、`startChat`の`history`に渡す内容を厳密に制御する必要があります。
-
-            // ここでは、現在のユーザーメッセージを`sendMessage`の引数として渡すため、
-            // `geminiChatHistory`は直前のAIの応答で終わるか、空である必要があります。
-            // もし `geminiChatHistory` の最後のロールが `user` の場合、そのメッセージは `sendMessage` に渡すことで重複になるため、
-            // `geminiChatHistory` から取り除いておく必要があります。
-
-            // より確実な履歴の渡し方: `startChat` の `history` は常にユーザーから始まり、モデルで終わるようにし、
-            // 現在のユーザーメッセージは `sendMessage` で渡す。
-            // ただし、現在のChatLogの構造では、userChatEntryにresponseが後で書き込まれるため、
-            // historyとして過去の正確な「user -> model」のペアを取得するのが困難。
-
-            // **最終的なGemini連携部分の修正:**
-            // ChatLogはuserのメッセージとその応答をセットで保存する方式なので、
-            // historyの組み立ては、過去のChatLogエントリの`message`を`user`、`response`を`model`として交互に設定します。
-
-            const finalGeminiHistory = [];
-            for (const log of rawHistory) { // rawHistoryは現在のユーザーメッセージより前のもの
-                finalGeminiHistory.push({ role: 'user', parts: [{ text: log.message }] });
-                if (log.response && log.response !== '') {
-                    finalGeminiHistory.push({ role: 'model', parts: [{ text: log.response }] });
-                }
+            // Gemini APIの制約：historyの最初のロールは'user'である必要がある。
+            // また、sendMessageの直前のhistoryのロールは'model'である必要がある。
+            // これを保証するために、geminiChatHistoryを調整します。
+            while (geminiChatHistory.length > 0 && geminiChatHistory[0].role === 'model') {
+                geminiChatHistory.shift(); // 最初の要素が'model'なら削除
+            }
+            // また、historyの最後の要素が'user'の場合、それを削除してsendMessageで送るようにする。
+            // 今回はpromtに全て含める方式なので、historyは過去の対話のみにする。
+            // finalGeminiHistory の最後のロールが user だった場合、それを削除
+            if (geminiChatHistory.length > 0 && geminiChatHistory[geminiChatHistory.length - 1].role === 'user') {
+                geminiChatHistory.pop();
             }
 
             const chat = chatModel.startChat({
-                history: finalGeminiHistory, // 整形された履歴
+                history: geminiChatHistory, // 整形された履歴を渡す
                 generationConfig: {
                     maxOutputTokens: MAX_MESSAGE_LENGTH,
                 },
@@ -764,7 +742,7 @@ async function handleEvent(event) {
             }
 
             const result = await chat.sendMessage(fullPrompt); // プロンプトを送信
-            replyText = result.response.text();
+            replyText = result.response.text(); // result.text() ではなく result.response.text() が正しいです。
 
             if (replyText.length > MAX_MESSAGE_LENGTH) {
                 replyText = replyText.substring(0, MAX_MESSAGE_LENGTH) + '...';
@@ -783,12 +761,12 @@ async function handleEvent(event) {
         await client.replyMessage(replyToken, { type: 'text', text: replyText });
     }
 
-    // ChatLogにBotの応答を保存（userChatEntryを更新）
-    // Geminiエラーなど、repliedTextが設定された場合のみ更新
-    if (replyText !== '') {
-        userChatEntry.response = replyText;
-        userChatEntry.modelUsed = modelUsed;
-        await userChatEntry.save();
+    // ChatLogにユーザーのメッセージとBotの応答を保存/更新
+    // システムで処理されなかった場合、またはシステム処理だが返信はテキストの場合
+    // Geminiからの返信、またはシステムからのテキスト返信をChatLogに保存
+    if (!userMessageHandledBySystem) { // 上記の`return Promise.resolve(null)`で抜けない場合
+        await ChatLog.create({ userId, message: userMessage, response: replyText, modelUsed: modelUsed, role: 'user' });
+        await ChatLog.create({ userId, message: replyText, response: userMessage, modelUsed: modelUsed, role: 'model' }); // Bot応答を別途保存
     }
 }
 
