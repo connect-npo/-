@@ -581,61 +581,43 @@ function containsScamPhrases(message) {
 }
 
 /**
- * メッセージが厳格な不適切ワード（悪口を含む）を含むかチェックする
+ * メッセージが不適切ワードを含むかチェックする (より厳格なチェック)
  * @param {string} message - ユーザーからのメッセージ
  * @returns {boolean} - 不適切ワードが含まれていればtrue
  */
 function containsStrictInappropriateWords(message) {
-    const lowerCaseMessage = message.toLowerCase(); // 小文字に変換して比較
+    const lowerCaseMessage = message.toLowerCase();
     return STRICT_INAPPROPRIATE_WORDS.some(word => lowerCaseMessage.includes(word));
 }
 
 /**
- * メッセージが宿題関連のトリガーワードを含むかチェックする
+ * メッセージが宿題トリガーワードを含むかチェックする
  * @param {string} message - ユーザーからのメッセージ
  * @returns {boolean} - 宿題トリガーワードが含まれていればtrue
  */
-function containsHomeworkTrigger(message) {
+function containsHomeworkTriggerWords(message) {
     const lowerCaseMessage = message.toLowerCase();
     return HOMEWORK_TRIGGER_WORDS.some(word => lowerCaseMessage.includes(word));
 }
 
 /**
- * メッセージがNPO法人コネクトに関する問い合わせかチェックする
+ * メッセージがNPO法人コネクトに関する問い合わせワードを含むかチェックする
  * @param {string} message - ユーザーからのメッセージ
- * @returns {boolean} - 組織問い合わせワードが含まれていればtrue
+ * @returns {boolean} - NPO法人コネクトに関する問い合わせワードが含まれていればtrue
  */
-function isOrganizationInquiry(message) {
+function containsOrganizationInquiryWords(message) {
     const lowerCaseMessage = message.toLowerCase();
     return ORGANIZATION_INQUIRY_WORDS.some(word => lowerCaseMessage.includes(word));
 }
 
 /**
- * メッセージが固定返信のトリガーに一致するかチェックし、一致すればその応答を返す
+ * 固定返信のワードが含まれているかチェックし、該当する返信を返す
  * @param {string} message - ユーザーからのメッセージ
- * @returns {string|null} - 固定返信があればそのテキスト、なければnull
+ * @returns {string|null} - 該当する固定返信があればその文字列、なければnull
  */
 function checkSpecialReply(message) {
-    // まず完全に一致するかチェック
-    if (SPECIAL_REPLIES[message]) {
-        return SPECIAL_REPLIES[message];
-    }
-
-    // 次にメッセージに部分的に含まれるキーがあるかチェック（より長いキーを優先）
-    const sortedKeys = Object.keys(SPECIAL_REPLIES).sort((a, b) => b.length - a.length);
-    const lowerCaseMessage = message.toLowerCase();
-
-    for (const key of sortedKeys) {
-        // 固定返信のキーを小文字にしてメッセージに含まれるかチェック
-        if (lowerCaseMessage.includes(key.toLowerCase())) {
-            // ただし、特定の固定返信は完全一致のみを考慮するなどのルールを設けることも可能
-            // 例: "君の名前は？"は完全一致のみ、"好きなアニメ"は部分一致でもOKなど
-            // 今回はシンプルに、部分一致でヒットしたら返す
-            return SPECIAL_REPLIES[key];
-        }
-    }
-
-    return null;
+    const trimmedMessage = message.trim();
+    return SPECIAL_REPLIES[trimmedMessage] || null;
 }
 
 module.exports = {
@@ -643,8 +625,8 @@ module.exports = {
     containsScamWords,
     containsScamPhrases,
     containsStrictInappropriateWords,
-    containsHomeworkTrigger,
-    isOrganizationInquiry,
+    containsHomeworkTriggerWords,
+    containsOrganizationInquiryWords,
     checkSpecialReply
 };
 // bot_logic.js
