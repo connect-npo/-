@@ -47,44 +47,56 @@ async function connectToMongoDB() {
 const MEMBERSHIP_CONFIG = {
     "guest": {
         monthlyLimit: 5,
+        dailyLimit: 3, // 例: 1日3回まで
         model: "gemini-1.5-flash",
         exceedLimitMessage: "ごめんね💦 体験での無料メッセージは月に5回までなんだ🌸 もっとたくさんお話ししたい時は、無料会員登録や寄付会員になると、もっと話せるようになるよ💖",
+        exceedDailyLimitMessage: "ごめんね💦 体験での無料メッセージは、1日に3回までなんだ🌸 明日またお話ししようね💖", // 日次制限メッセージ
         canUseWatchService: false,
         isChildAI: false
     },
     "free_member": {
         monthlyLimit: 30,
+        dailyLimit: 10, // 例: 1日10回まで
         model: "gemini-1.5-flash",
         exceedLimitMessage: "ごめんね💦 無料会員のメッセージは月に30回までなんだ🌸 もっとたくさんお話ししたい時は、寄付会員になると、もっと話せるようになるよ💖",
+        exceedDailyLimitMessage: "ごめんね💦 無料会員のメッセージは、1日に10回までなんだ🌸 明日またお話ししようね💖",
         canUseWatchService: true,
         isChildAI: false
     },
     "subscriber": { // 例: サブスクリプション会員 (月額課金など)
         monthlyLimit: 100, // または -1 で無制限
+        dailyLimit: 30, // 例: 1日30回まで
         model: "gemini-1.5-pro",
         fallbackModel: "gemini-1.5-flash", // Pro制限超過時のフォールバック
         exceedLimitMessage: "今月のメッセージ回数を超えちゃったみたい💦でも、引き続きお話できるから安心してね！",
+        exceedDailyLimitMessage: "ごめんね、今日のメッセージ回数を超えちゃったみたい💦でも、引き続きお話できるから安心してね！",
         canUseWatchService: true,
         isChildAI: false
     },
     "donor": { // 例: 寄付会員 (最上位層)
         monthlyLimit: -1, // 無制限
+        dailyLimit: -1, // 無制限
         model: "gemini-1.5-pro",
         exceedLimitMessage: "ありがとう💖", // 無制限なので通常は表示されない
+        exceedDailyLimitMessage: "ありがとう💖",
         canUseWatchService: true,
         isChildAI: false
     },
     "admin": { // 管理者
         monthlyLimit: -1, // 無制限
+        dailyLimit: -1, // 無制限
         model: "gemini-1.5-pro",
         exceedLimitMessage: "",
+        exceedDailyLimitMessage: "",
         canUseWatchService: true,
         isChildAI: false
     },
     "child_member": { // 子供向けAI
         monthlyLimit: -1, // 無制限
+        dailyLimit: -1, // 無制限
         model: "gemini-1.5-flash",
         exceedLimitMessage: "たくさんお話してくれてありがとうね🌸",
+        exceedDailyLimitMessage: "たくさんお話してくれてありがとうね🌸",
         canUseWatchService: false,
         isChildAI: true // 子供向けAIフラグ
     }
@@ -581,7 +593,11 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
                     role: "user",
                     parts: [{ text: userMessage }]
                 }
-            ]
+            ],
+            generationConfig: {
+                maxOutputTokens: 200, // ★ Gemini AI出力トークン数制限 (日本語100～200文字程度)
+                temperature: 0.7
+            }
         });
 
         // 10秒のタイムアウトを設定
@@ -841,8 +857,10 @@ app.post('/webhook', async (req, res) => {
                         createdAt: new Date(),
                         membershipType: "guest", // ★追加: 初期は"guest"に設定
                         monthlyMessageCount: 0, // ★追加: 月間メッセージカウントを0で初期化
-                        // ★追加: 最終メッセージリセット月を記録 (月が変わったらカウントをリセットするため)
-                        lastMessageResetDate: new Date()
+                        lastMessageResetDate: new Date(), // ★追加: 最終メッセージリセット月を記録
+                        lastMessageTimestamp: null, // ★追加: 最終メッセージ送信タイムスタンプ
+                        dailyMessageCount: 0, // ★追加: 日次メッセージカウント
+                        lastDailyResetDate: new Date() // ★追加: 最終日次リセット日付
                     };
                     await usersCollection.insertOne(user);
                     console.log(`新規ユーザーを登録しました: ${user.name} (${user.userId})`);
@@ -871,8 +889,61 @@ app.post('/webhook', async (req, res) => {
                 }
             }
 
-            // --- 月間メッセージカウントのリセットとインクリメント ---
+            // テキストメッセージ以外は無視
+            if (event.type !== 'message' || event.message.type !== 'text') {
+                return;
+            }
+
+            const userMessage = event.message.text; // メッセージがない場合も考慮
+
+            // --- ★追加: メッセージ長制限 (最大400文字) ---
+            const MAX_MESSAGE_LENGTH = 400;
+            if (userMessage.length > MAX_MESSAGE_LENGTH) {
+                const replyText = `ごめんね、メッセージが長すぎるみたい💦 ${MAX_MESSAGE_LENGTH}文字以内で送ってくれると嬉しいな🌸`;
+                await client.replyMessage(event.replyToken, { type: "text", text: replyText });
+                await messagesCollection.insertOne({
+                    userId: userId,
+                    message: userMessage,
+                    replyText: replyText,
+                    responsedBy: 'こころちゃん（メッセージ長制限）',
+                    isWarning: true,
+                    warningType: 'message_length',
+                    timestamp: new Date(),
+                });
+                return; // これ以上処理しない
+            }
+
+            // --- ★追加: レートリミット（1分1回制限） ---
             const now = new Date();
+            // user.lastMessageTimestamp が null の場合を考慮し、新しい Date(0) を設定
+            const lastMessageTimestamp = user.lastMessageTimestamp ? new Date(user.lastMessageTimestamp) : new Date(0);
+            const timeSinceLastMessage = now.getTime() - lastMessageTimestamp.getTime();
+
+            if (timeSinceLastMessage < 60 * 1000) { // 60秒（1分）未満の場合
+                console.log(`🚫 ユーザー ${userId} がレートリミットに達しました。(${timeSinceLastMessage / 1000}秒経過)`);
+                // ユーザーには応答しない（静かに破棄）
+                // もし応答が必要なら、ここでメッセージを返すが、乱用防止のため静かに破棄が推奨される
+                await messagesCollection.insertOne({ // ログは残す
+                    userId: userId,
+                    message: userMessage,
+                    replyText: '(レートリミットによりスキップ)',
+                    responsedBy: 'こころちゃん（レートリミット）',
+                    isWarning: true,
+                    warningType: 'rate_limit',
+                    timestamp: new Date(),
+                });
+                return; // 以降の処理をスキップ
+            }
+            // 最終メッセージ時刻を更新
+            await usersCollection.updateOne(
+                { userId: userId },
+                { $set: { lastMessageTimestamp: now } }
+            );
+
+            const replyToken = event.replyToken;
+
+
+            // --- 月間メッセージカウントのリセットとインクリメント ---
             const currentMonth = now.getMonth();
             const lastResetDate = user.lastMessageResetDate ? new Date(user.lastMessageResetDate) : null;
             const lastResetMonth = lastResetDate ? lastResetDate.getMonth() : -1;
@@ -890,14 +961,23 @@ app.post('/webhook', async (req, res) => {
                 console.log(`ユーザー ${userId} の月間メッセージカウントをリセットしました。`);
             }
 
-            // テキストメッセージ以外は無視
-            if (event.type !== 'message' || event.message.type !== 'text') {
-                // Postbackイベントもここで処理するために、ここでのreturnはpostbackの前に移動
-                // return;
-            }
+            // --- ★追加: 日次メッセージカウントのリセットとインクリメント ---
+            const currentDay = now.getDate();
+            const lastDailyResetDate = user.lastDailyResetDate ? new Date(user.lastDailyResetDate) : null;
+            const lastResetDay = lastDailyResetDate ? lastDailyResetDate.getDate() : -1;
+            const lastResetDailyMonth = lastDailyResetDate ? lastDailyResetDate.getMonth() : -1;
+            const lastResetDailyYear = lastDailyResetDate ? lastDailyResetDate.getFullYear() : -1;
 
-            const userMessage = event.message ? event.message.text : ''; // メッセージがない場合も考慮
-            const replyToken = event.replyToken;
+            // 年、月、または日が変わったら日次カウントをリセット
+            if (currentYear !== lastResetDailyYear || currentMonth !== lastResetDailyMonth || currentDay !== lastResetDay) {
+                await usersCollection.updateOne(
+                    { userId: userId },
+                    { $set: { dailyMessageCount: 0, lastDailyResetDate: now } }
+                );
+                user.dailyMessageCount = 0; // メモリ上のuserオブジェクトも更新
+                user.lastDailyResetDate = now;
+                console.log(`ユーザー ${userId} の日次メッセージカウントをリセットしました。`);
+            }
 
             // --- コマンド処理 ---
             if (userMessage === "見守り" || userMessage === "見守りサービス") {
@@ -1007,7 +1087,7 @@ app.post('/webhook', async (req, res) => {
                     await client.replyMessage(replyToken, { type: 'text', text: '見守りサービスを解除したよ🌸 また利用したくなったら、いつでも教えてね！💖' });
                     await messagesCollection.insertOne({
                         userId: userId,
-                        message: '(ポストバック: 見守りサービス解除)',
+                        message: '(ポストback: 見守りサービス解除)',
                         replyText: '見守りサービスを解除したよ',
                         responsedBy: 'こころちゃん（見守り解除）',
                         timestamp: new Date(),
@@ -1044,24 +1124,39 @@ app.post('/webhook', async (req, res) => {
             if (currentMembershipType !== "admin") {
                 const currentConfig = MEMBERSHIP_CONFIG[currentMembershipType];
 
-                // currentConfigがundefinedでないことを確認してからアクセス
+                // ★追加: 日次制限チェック
+                if (currentConfig && currentConfig.dailyLimit !== -1 && user.dailyMessageCount >= currentConfig.dailyLimit) {
+                    await client.replyMessage(replyToken, { type: "text", text: currentConfig.exceedDailyLimitMessage });
+                    await messagesCollection.insertOne({
+                        userId: userId,
+                        message: userMessage,
+                        replyText: currentConfig.exceedDailyLimitMessage,
+                        responsedBy: 'こころちゃん（日次回数制限）',
+                        timestamp: new Date(),
+                    });
+                    return; // 日次回数制限を超過した場合はAI応答を行わない
+                }
+
+                // 月次制限チェック
                 if (currentConfig && currentConfig.monthlyLimit !== -1 && user.monthlyMessageCount >= currentConfig.monthlyLimit) {
                     await client.replyMessage(replyToken, { type: "text", text: currentConfig.exceedLimitMessage });
                     await messagesCollection.insertOne({
                         userId: userId,
                         message: userMessage,
                         replyText: currentConfig.exceedLimitMessage,
-                        responsedBy: 'こころちゃん（回数制限）',
+                        responsedBy: 'こころちゃん（月次回数制限）',
                         timestamp: new Date(),
                     });
                     return; // 回数制限を超過した場合はAI応答を行わない
                 }
+
                 // メッセージカウントをインクリメント（admin以外）
                 await usersCollection.updateOne(
                     { userId: userId },
-                    { $inc: { monthlyMessageCount: 1 } }
+                    { $inc: { monthlyMessageCount: 1, dailyMessageCount: 1 } } // 月次と日次を同時にインクリメント
                 );
                 user.monthlyMessageCount++; // メモリ上のuserオブジェクトも更新
+                user.dailyMessageCount++; // メモリ上のuserオブジェクトも更新
             }
 
 
@@ -1181,6 +1276,33 @@ cron.schedule('0 0 1 * *', async () => {
         console.log(`✅ 月次メッセージカウントをリセットしました: ${result.modifiedCount}件のユーザー`);
     } catch (error) {
         console.error("❌ 月次メッセージカウントリセット中にエラーが発生しました:", error);
+    }
+}, {
+    timezone: "Asia/Tokyo"
+});
+
+// ★追加: 日次メッセージカウントリセット (毎日午前0時)
+cron.schedule('0 0 * * *', async () => {
+    console.log('--- Cron job: 日次メッセージカウントリセット ---');
+    try {
+        if (!db) {
+            await connectToMongoDB();
+        }
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        const result = await usersCollection.updateMany(
+            {
+                $or: [
+                    { lastDailyResetDate: { $lt: startOfToday } }, // 今日以前にリセットされている
+                    { lastDailyResetDate: { $exists: false } } // またはリセット日が未設定
+                ]
+            },
+            { $set: { dailyMessageCount: 0, lastDailyResetDate: now } }
+        );
+        console.log(`✅ 日次メッセージカウントをリセットしました: ${result.modifiedCount}件のユーザー`);
+    } catch (error) {
+        console.error("❌ 日次メッセージカウントリセット中にエラーが発生しました:", error);
     }
 }, {
     timezone: "Asia/Tokyo"
