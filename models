@@ -1,3 +1,5 @@
+const mongoose = require('mongoose');
+
 const userSchema = new mongoose.Schema({
     userId: { type: String, required: true, unique: true },
     membership: { type: String, default: 'guest', enum: ['guest', 'registered', 'subscriber', 'donor', 'admin'] },
@@ -6,6 +8,7 @@ const userSchema = new mongoose.Schema({
     monthlyMessageCount: { type: Number, default: 0 },
     lastDailyReset: { type: Date, default: Date.now },
     lastMonthlyReset: { type: Date, default: Date.now },
+    isChildAI: { type: Boolean, default: false }, // ★この行を追加
     watchService: {
         isRegistered: { type: Boolean, default: false },
         lastContact: { type: Date, default: null }, // 最終接触日時
@@ -15,41 +18,3 @@ const userSchema = new mongoose.Schema({
 });
 
 module.exports = mongoose.model('User', userSchema);
-```
-
----
-
-**ファイル2: `models/ChatLog.js`** の内容
-
-```javascript
-const mongoose = require('mongoose');
-
-const chatLogSchema = new mongoose.Schema({
-    userId: { type: String, required: true },
-    message: { type: String, required: true },
-    response: { type: String, default: '' },
-    modelUsed: { type: String, default: '' }, // Geminiモデル名などを記録
-    timestamp: { type: Date, default: Date.now }
-});
-
-module.exports = mongoose.model('ChatLog', chatLogSchema);
-```
-
----
-
-**ファイル3: `models/WatchService.js`** の内容
-
-```javascript
-const mongoose = require('mongoose');
-
-const watchServiceSchema = new mongoose.Schema({
-    userId: { type: String, required: true, unique: true },
-    emergencyContactNumber: { type: String, required: true },
-    lastContact: { type: Date, default: Date.now },
-    isRegistered: { type: Boolean, default: true }
-});
-
-module.exports = mongoose.model('WatchService', watchServiceSchema);
-```
-
----
