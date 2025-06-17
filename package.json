@@ -1,22 +1,21 @@
 {
   "name": "kokoro-bot",
   "version": "1.0.0",
-  "description": "Connect NPO LINE相談Bot",
+  "description": "",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "@google/generative-ai": "^0.14.0",
-    "@line/bot-sdk": "^7.5.1",
-    "axios": "^1.6.0",
-    "dotenv": "^16.4.5",
+    "@line/bot-sdk": "^7.5.2",
+    "@google/generative-ai": "^0.6.0",
     "express": "^4.18.2",
-    "mongodb": "^5.7.0",
-    "node-cron": "^3.0.2",
-    "moment-timezone": "^0.5.45" 
-  },
-  "engines": {
-    "node": "18.x"
+    "moment-timezone": "^0.5.43",
+    "mongoose": "^6.12.0",  <-- この行を追加またはバージョンを確認
+    "node-schedule": "^2.1.1",
+    "uuid": "^9.0.1"
   }
 }
