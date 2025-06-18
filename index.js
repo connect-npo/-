@@ -12,11 +12,11 @@ const WATCH_SERVICE_MESSAGES = require('./watch-messages');
 
 // --- ここから定数と設定 ---
 const MEMBERSHIP_CONFIG = {
-    "guest": { canUseWatchService: false, monthlyLimit: 5, dailyLimit: null, model: "gemini-pro" },
-    "registered": { canUseWatchService: true, monthlyLimit: 50, dailyLimit: null, model: "gemini-pro" },
-    "subscriber": { canUseWatchService: true, monthlyLimit: -1, dailyLimit: -1, model: "gemini-pro-1.5" },
-    "donor": { canUseWatchService: true, monthlyLimit: -1, dailyLimit: -1, model: "gemini-pro-1.5" },
-    "admin": { canUseWatchService: true, monthlyLimit: -1, dailyLimit: -1, model: "gemini-pro-1.5" }
+    "guest": { canUseWatchService: false, monthlyLimit: 5, dailyLimit: null, model: "gemini-pro", isChildAI: true }, // isChildAIを追加
+    "registered": { canUseWatchService: true, monthlyLimit: 50, dailyLimit: null, model: "gemini-pro", isChildAI: true }, // isChildAIを追加
+    "subscriber": { canUseWatchService: true, monthlyLimit: -1, dailyLimit: -1, model: "gemini-pro-1.5", isChildAI: false }, // isChildAIを追加
+    "donor": { canUseWatchService: true, monthlyLimit: -1, dailyLimit: -1, model: "gemini-pro-1.5", isChildAI: false }, // isChildAIを追加
+    "admin": { canUseWatchService: true, monthlyLimit: -1, dailyLimit: -1, model: "gemini-pro-1.5", isChildAI: false } // isChildAIを追加
 };
 
 const YOUR_CHANNEL_ACCESS_TOKEN = process.env.CHANNEL_ACCESS_TOKEN || 'YOUR_CHANNEL_ACCESS_TOKEN';
@@ -216,9 +216,7 @@ const WATCH_SERVICE_EMERGENCY_ALERT_MESSAGE = (userName, userId) => `【NPO法�
 
 const WATCH_SERVICE_EMERGENCY_ALERT_MESSAGE_TO_OFFICERS = (userName, userId, emergencyContact) => `🚨【理事会緊急通知】安否未確認アラート🚨\n\nNPO法人コネクトの見守りサービスにて、以下のユーザー様について安否確認ができておりません。\n\n- LINEユーザーID: ${userId}\n- LINE表示名: ${userName || '不明'}\n- 緊急連絡先: ${emergencyContact || '未登録'}\n\n定期メッセージ送信後、29時間以上応答がないため、緊急連絡先に通知いたしました。\n必要に応じて、速やかに状況確認をお願いいたします。`;
 
-// 詐欺検出時の理事会グループへの通知メッセージ (SCAM_DETECTED_EMERGENCY_ALERT_MESSAGE は削除済み)
 const SCAM_DETECTED_OFFICER_ALERT_MESSAGE = (userName, userId, emergencyContact, detectedMessage) => `🚨【理事会緊急通知】詐欺ワード検出アラート🚨\n\nNPO法人コネクトの見守りサービスにて、以下のユーザー様から詐欺・危険と判断されるメッセージを受信しました。\n\n- LINEユーザーID: ${userId}\n- LINE表示名: ${userName || '不明'}\n- 緊急連絡先: ${emergencyContact || '未登録'}\n- 受信メッセージ:\n「${detectedMessage}」\n\n必要に応じて、速やかに状況確認をお願いいたします。`;
-
 
 // --- ここまで定数と設定 ---
 
@@ -238,17 +236,18 @@ const client = new Client({
 
 const app = express();
 
+// Webhookのtry-catchブロックを追加
 app.post('/webhook', middleware({
     channelAccessToken: YOUR_CHANNEL_ACCESS_TOKEN,
     channelSecret: YOUR_CHANNEL_SECRET,
-}), (req, res) => {
-    Promise
-        .all(req.body.events.map(handleEvent))
-        .then((result) => res.json(result))
-        .catch((err) => {
-            console.error(err);
-            res.status(500).end();
-        });
+}), async (req, res) => {
+    try {
+        await Promise.all(req.body.events.map(handleEvent));
+        res.status(200).send("OK"); // ここで必ず成功返答
+    } catch (err) {
+        console.error("Webhook処理中エラー:", err); // エラーログ出力
+        res.status(500).send("Webhook internal error"); // エラー時もLINEに返答
+    }
 });
 
 // --- ここから補助関数の定義 (変更なし) ---
@@ -434,7 +433,7 @@ async function handleEvent(event) {
             user.watchService.status = 'none';
             await user.save();
             await client.replyMessage(replyToken, { type: 'text', text: "見守りサービスを解除したよ🌸 また利用したくなったら「見守りサービス」と話しかけてね😊" });
-            await ChatLog.create({ userId, userMessage: userMessage, botResponse: `System/WatchServiceUnregister action: ${postbackAction}`, modelUsed: "System" });
+            await ChatLog.create({ userId, userMessage: userMessage, botResponse: replyText, modelUsed: modelUsed }); // ここは `replyText`ではなく固定メッセージ
             return Promise.resolve(null); // 処理を終了
         }
         // その他のPostbackイベントはここでは処理しないが、必要に応じて追加
@@ -449,7 +448,10 @@ async function handleEvent(event) {
         await user.save();
     }
 
-    const userMembershipConfig = MEMBERSHIP_CONFIG[user.membership] || MEMBERSHIP_CONFIG.guest;
+    // isChildAIの修正を反映
+    const currentMembershipConfig = MEMBERSHIP_CONFIG[user.membership] || MEMBERSHIP_CONFIG.guest;
+    const isChildAI = currentMembershipConfig.isChildAI; // isChildAIがMEMBERSHIP_CONFIGに定義されている前提
+
     const now = moment().tz("Asia/Tokyo");
 
     // 日次リセット、月次リセット (変更なし)
@@ -537,26 +539,6 @@ async function handleEvent(event) {
     else if (user.watchService.isRegistered && containsDangerWords(userMessage)) {
         replyText = `心配なメッセージを受け取りました。あなたは今、大丈夫？もし苦しい気持ちを抱えているなら、一人で抱え込まず、信頼できる人に話したり、専門の相談窓口に連絡してみてくださいね。${OFFICER_GROUP_ID ? `NPO法人コネクトの担当者にも通知しました。` : ''}あなたの安全が最優先です。`;
         
-        // 緊急連絡先への通知 (危険ワード検出時) は、前回の指示通り詐欺検出時のメッセージを利用しないよう、現状は保留または別途定義が必要
-        // もし、危険ワード検出時にも緊急連絡先へ通知したい場合は、ここにロジックを追加してください。
-        // 例:
-        // if (user.watchService.emergencyContactNumber) {
-        //     let userName = "不明なユーザー";
-        //     try {
-        //         const userProfile = await client.getProfile(user.userId);
-        //         userName = userProfile.displayName;
-        //     } catch (profileError) {
-        //         console.warn(`Could not get profile for user ${user.userId}:`, profileError);
-        //     }
-        //     const dangerAlertMessage = `【緊急】ユーザー様（LINE表示名: ${userName || '不明'}）より、危険な内容（"${originalUserMessage}"）を含むメッセージが検出されました。安否をご確認ください。`;
-        //     try {
-        //         await client.pushMessage(user.watchService.emergencyContactNumber, { type: 'text', text: dangerAlertMessage });
-        //         console.log(`Sent emergency alert (Danger Word) to ${user.watchService.emergencyContactNumber} for user ${user.userId}`);
-        //     } catch (alertError) {
-        //         console.error(`Failed to send emergency alert (Danger Word) to ${user.watchService.emergencyContactNumber} for user ${user.userId}:`, alertError);
-        //     }
-        // }
-
         // 理事会グループへの通知 (危険ワード検出時)
         if (OFFICER_GROUP_ID) {
             let userName = "不明なユーザー";
@@ -584,8 +566,6 @@ async function handleEvent(event) {
     // 詐欺ワードチェック
     else if (containsScamWords(userMessage) || containsScamPhrases(userMessage)) {
         await client.replyMessage(replyToken, emergencyFlex); // ユーザーには相談窓口のFlex Messageを返す (維持)
-
-        // *** 緊急連絡先への通知は削除済み ***
 
         // 理事会グループへの通知 (詐欺ワード検出時) は維持
         if (OFFICER_GROUP_ID) {
@@ -640,14 +620,12 @@ async function handleEvent(event) {
 
     // Gemini AIとの連携 (上記いずれの条件にも当てはまらない場合のみ)
     try {
-        const currentMembershipConfig = MEMBERSHIP_CONFIG[user.membership];
-        const isChildAI = currentMembershipConfig && currentMembershipConfig.isChildAI;
         let chatModel;
 
         if (isChildAI) {
             chatModel = genAI.getGenerativeModel({ model: MEMBERSHIP_CONFIG.guest.model });
         } else {
-            chatModel = genAI.getGenerativeModel({ model: userMembershipConfig.model });
+            chatModel = genAI.getGenerativeModel({ model: currentMembershipConfig.model });
         }
 
         const rawHistory = await ChatLog.find({ userId: userId })
