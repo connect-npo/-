@@ -3,7 +3,8 @@ const { Client, middleware } = require('@line/bot-sdk');
 const mongoose = require('mongoose');
 const moment = require('moment-timezone');
 const schedule = require('node-schedule');
-const http = require('http');
+const http = require('http'); // httpモジュールは一旦残す
+const https = require('https'); // 追加: httpsモジュールをインポート
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // --- watch-messages.js からメッセージを読み込む ---
@@ -249,7 +250,6 @@ app.post('/webhook', middleware({
         res.status(500).send("Webhook internal error"); // エラー時もLINEに返答
     }
 });
-
 // --- ここから補助関数の定義 (変更なし) ---
 
 const checkSpecialReply = (message) => {
@@ -433,7 +433,8 @@ async function handleEvent(event) {
             user.watchService.status = 'none';
             await user.save();
             await client.replyMessage(replyToken, { type: 'text', text: "見守りサービスを解除したよ🌸 また利用したくなったら「見守りサービス」と話しかけてね😊" });
-            await ChatLog.create({ userId, userMessage: userMessage, botResponse: replyText, modelUsed: modelUsed }); // ここは `replyText`ではなく固定メッセージ
+            // ここは `replyText`ではなく固定メッセージ
+            await ChatLog.create({ userId, userMessage: userMessage, botResponse: "見守りサービス解除", modelUsed: "System/WatchServiceUnregister" }); 
             return Promise.resolve(null); // 処理を終了
         }
         // その他のPostbackイベントはここでは処理しないが、必要に応じて追加
@@ -490,7 +491,8 @@ async function handleEvent(event) {
 
     // 見守りサービス関連コマンドの処理を最優先
     if (userMessage.includes("見守り")) {
-        if (!userMembershipConfig.canUseWatchService) {
+        // userMembershipConfig が定義されていなかったので、currentMembershipConfig を使用
+        if (!currentMembershipConfig.canUseWatchService) { 
             replyText = "ごめんね💦 見守りサービスは無料会員以上の方が利用できるサービスなんだ🌸 会員登録をすると利用できるようになるよ😊";
             modelUsed = "System/WatchServiceDenied";
             await client.replyMessage(replyToken, { type: 'text', text: replyText });
@@ -887,7 +889,17 @@ app.listen(PORT, () => {
 });
 
 setInterval(() => {
-    const hostname = process.env.RENDER_EXTERNAL_HOSTNAME || `localhost:${PORT}`;
-    http.get(`http://${hostname}`);
-    console.log('Sent keep-alive request.');
-}, 5 * 60 * 1000);
+    const hostname = process.env.RENDER_EXTERNAL_HOSTNAME; // ここは 'chat.connect-npo.org' のみになる想定
+    if (hostname) {
+        // HTTPSを使ってキープアライブリクエストを送信
+        https.get(`https://${hostname}`, (res) => {
+            console.log(`Keep-alive ping status for https://${hostname}: ${res.statusCode}`);
+        }).on('error', (e) => {
+            console.error(`Keep-alive ping error for https://${hostname}: ${e.message}`);
+        });
+    } else {
+        // RENDER_EXTERNAL_HOSTNAME が設定されていない場合は localhost に http でリクエスト (開発環境向け)
+        http.get(`http://localhost:${PORT}`);
+        console.log('Sent keep-alive request to localhost.');
+    }
+}, 5 * 60 * 1000); // 5分おき
