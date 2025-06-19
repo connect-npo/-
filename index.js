@@ -26,7 +26,7 @@ let systemInstruction = `
 
 # 例
 Q: 君の名前は？
-A: わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖
+A: わたしの名前は皆守こころっていいます🌸 こころちゃんって呼ばれてます💖
 
 Q: どこの団体なの？
 A: NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸
@@ -378,6 +378,95 @@ async function sendScheduledWatchMessage() {
 // ここまで修正コード（1/3）
 // ここから修正コード（2/3）
 
+// --- Flex Message の定義 ---
+const watchServiceGuideFlex = {
+  type: "flex",
+  altText: "見守りサービスのご案内",
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      contents: [
+        { type: "text", text: "🌸 見守りサービス 🌸", weight: "bold", size: "lg" },
+        { type: "text", text: "3日に1回こころちゃんが「元気かな？」って聞くよ！", wrap: true },
+        { type: "separator", margin: "md" },
+        {
+          type: "box",
+          layout: "horizontal",
+          margin: "lg",
+          spacing: "md",
+          contents: [
+            {
+              type: "button",
+              style: "primary",
+              color: "#f8b0c4",
+              action: {
+                type: "postback",
+                label: "見守り登録する",
+                data: "action=watch_register",
+                displayText: "見守り登録する" // ユーザーが送るテキスト
+              },
+              flex: 1
+            },
+            {
+              type: "button",
+              style: "secondary",
+              action: {
+                type: "postback",
+                label: "見守り解除する",
+                data: "action=watch_unregister",
+                displayText: "見守り解除する" // ユーザーが送るテキスト
+              },
+              flex: 1
+            }
+          ]
+        }
+      ]
+    }
+  }
+};
+
+const watchServiceNotice = "緊急連絡先となる電話番号を教えてください。0から始まる10桁か11桁の数字で入力してね🌸 (例: 09012345678)";
+
+// userDisplayName は動的に取得して渡すことを想定
+const watchServiceNoticeConfirmedFlex = (userDisplayName, emergencyContact) => ({
+  type: "flex",
+  altText: "見守りサービス登録完了",
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      contents: [
+        {
+          type: "text",
+          text: "✅ 見守りサービス登録完了 ✅",
+          weight: "bold",
+          size: "lg",
+          align: "center",
+          color: "#00B900"
+        },
+        {
+          type: "text",
+          text: `${userDisplayName}さんの緊急連絡先として\n${emergencyContact} を登録したよ🌸`,
+          wrap: true,
+          margin: "md",
+          align: "center"
+        },
+        {
+          type: "text",
+          text: "これで安心だね！またね💖",
+          wrap: true,
+          margin: "md",
+          align: "center"
+        }
+      ]
+    }
+  }
+});
+
+
 // LINE BotからWebhookイベントを受信
 app.post('/webhook', line.middleware(config), async (req, res) => {
     const events = req.body.events;
@@ -625,7 +714,7 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
                 });
                 return;
             }
-            await client.replyMessage(replyToken, watchServiceGuideFlex);
+            await client.replyMessage(replyToken, watchServiceGuideFlex); // Flex Message を送信
             await messagesCollection.insertOne({
                 userId: userId,
                 message: userMessage,
@@ -644,7 +733,9 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
                     { userId: userId },
                     { $set: { emergencyContact: userMessage, wantsWatchCheck: true, registrationStep: null, lastOkResponse: new Date(), scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false } }
                 );
-                await client.replyMessage(replyToken, watchServiceNoticeConfirmedFlex(userMessage));
+                // ユーザーの表示名を取得してFlex Messageに渡す
+                const userDisplayName = user.displayName || (await client.getProfile(userId)).displayName;
+                await client.replyMessage(replyToken, watchServiceNoticeConfirmedFlex(userDisplayName, userMessage));
                 console.log(`✅ ユーザー ${userId} の緊急連絡先を登録し、見守りサービスを開始しました。`);
                 await messagesCollection.insertOne({
                     userId: userId,
@@ -693,7 +784,8 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
         if (currentMembershipType !== "admin") {
             const currentConfig = MEMBERSHIP_CONFIG[currentMembershipType];
 
-            // ★追加: 日次制限チェック
+            // ★修正: 日次制限チェックをコメントアウト (テスト環境向け)
+            /*
             if (currentConfig && currentConfig.dailyLimit !== -1 && user.dailyMessageCount >= currentConfig.dailyLimit) {
                 await client.replyMessage(replyToken, { type: "text", text: currentConfig.exceedDailyLimitMessage });
                 await messagesCollection.insertOne({
@@ -705,6 +797,7 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
                 });
                 return; // 日次回数制限を超過した場合はAI応答を行わない
             }
+            */
 
             // 月次制限チェック
             if (currentConfig && currentConfig.monthlyLimit !== -1 && user.monthlyMessageCount >= currentConfig.monthlyLimit) {
@@ -720,6 +813,7 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
             }
 
             // メッセージカウントをインクリメント（admin以外）
+            // コメントアウトした日次制限の代わりに、ここでのインクリメントはそのまま残します
             await usersCollection.updateOne(
                 { userId: userId },
                 { $inc: { monthlyMessageCount: 1, dailyMessageCount: 1 } } // 月次と日次を同時にインクリメント
@@ -782,224 +876,114 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
 // ここまで修正コード（2/3）
                            // ここから修正コード（3/3）
 
-
-
         // --- 固定返信（Special Reply）のチェック ---
-
         const specialReply = checkSpecialReply(userMessage);
-
         if (specialReply) {
-
             await client.replyMessage(replyToken, { type: "text", text: specialReply });
-
             await messagesCollection.insertOne({
-
                 userId: userId,
-
                 message: userMessage,
-
                 replyText: specialReply,
-
                 responsedBy: 'こころちゃん（固定返信：特殊）',
-
                 timestamp: new Date(),
-
             });
-
             return;
-
         }
-
-
 
         // --- AI応答の生成 ---
-
         const replyText = await generateReply(userMessage, user); // userオブジェクトを渡す
-
         await client.replyMessage(replyToken, { type: "text", text: replyText });
-
         await messagesCollection.insertOne({
-
             userId: userId,
-
             message: userMessage,
-
             replyText: replyText,
-
             responsedBy: 'こころちゃん（AI応答）',
-
             timestamp: new Date(),
-
         });
 
-
-
     })) // Promise.all の閉じ
-
     .then(() => res.status(200).send('OK'))
-
     .catch((err) => {
-
         console.error('個別イベント処理中にエラーが発生しました:', err);
-
         res.status(500).send('Internal Server Error');
-
     });
-
 });
-
-
 
 // --- Cron ジョブ ---
-
 // 定期見守りメッセージ送信 (3日に1回、午後3時)
-
 cron.schedule('0 15 */3 * *', async () => {
-
     console.log('--- Cron job: 定期見守りメッセージ送信 ---');
-
     await sendScheduledWatchMessage();
-
 }, {
-
     timezone: "Asia/Tokyo"
-
 });
-
-
 
 // 月次メッセージカウントリセット (毎月1日午前0時)
-
 cron.schedule('0 0 1 * *', async () => {
-
     console.log('--- Cron job: 月次メッセージカウントリセット ---');
-
     try {
-
         if (!db) { // Cronジョブ内でもDB接続を確認
-
             await connectToMongoDB();
-
         }
-
         // lastMessageResetDate が現在の月と異なるユーザーのmonthlyMessageCountをリセット
-
         const now = new Date();
-
         const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-
-
         const result = await usersCollection.updateMany(
-
             {
-
                 $or: [
-
                     { lastMessageResetDate: { $lt: startOfCurrentMonth } }, // 今月以前にリセットされている
-
                     { lastMessageResetDate: { $exists: false } } // またはリセット日が未設定
-
                 ]
-
             },
-
             { $set: { monthlyMessageCount: 0, lastMessageResetDate: now } }
-
         );
-
         console.log(`✅ 月次メッセージカウントをリセットしました: ${result.modifiedCount}件のユーザー`);
-
     } catch (error) {
-
         console.error("❌ 月次メッセージカウントリセット中にエラーが発生しました:", error);
-
     }
-
 }, {
-
     timezone: "Asia/Tokyo"
-
 });
 
-
-
-// ★追加: 日次メッセージカウントリセット (毎日午前0時)
-
+// ★修正: 日次メッセージカウントリセット (毎日午前0時)
+// 日次制限をコメントアウトしたので、カウントリセット自体は残して問題ありません。
 cron.schedule('0 0 * * *', async () => {
-
     console.log('--- Cron job: 日次メッセージカウントリセット ---');
-
     try {
-
         if (!db) {
-
             await connectToMongoDB();
-
         }
-
         const now = new Date();
-
         const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-
-
         const result = await usersCollection.updateMany(
-
             {
-
                 $or: [
-
                     { lastDailyResetDate: { $lt: startOfToday } }, // 今日以前にリセットされている
-
                     { lastDailyResetDate: { $exists: false } } // またはリセット日が未設定
-
                 ]
-
             },
-
             { $set: { dailyMessageCount: 0, lastDailyResetDate: now } }
-
         );
-
         console.log(`✅ 日次メッセージカウントをリセットしました: ${result.modifiedCount}件のユーザー`);
-
     } catch (error) {
-
         console.error("❌ 日次メッセージカウントリセット中にエラーが発生しました:", error);
-
     }
-
 }, {
-
     timezone: "Asia/Tokyo"
-
 });
-
-
-
 
 
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, async () => {
-
     console.log(`Server running on port ${PORT}`);
-
     // 修正: MongoDB初期接続に失敗した場合、サーバーを終了する
-
     await connectToMongoDB().catch((err) => {
-
         console.error("❌ MongoDB初期接続に失敗:", err);
-
         process.exit(1); // アプリケーションを終了
-
     });
-
     console.log('✅ 定期ジョブがスケジュールされました。');
-
 });
-
-
 
 // ここまで修正コード（3/3）
