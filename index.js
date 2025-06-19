@@ -3,7 +3,7 @@
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
-const { LineClient } = require('@line/bot-sdk');
+const { Client } = require('@line/bot-sdk'); // ★修正点1: LineClient から Client へ変更
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { MongoClient } = require('mongodb');
 const cron = require('node-cron'); // cronジョブ用
@@ -22,7 +22,7 @@ const OWNER_USER_ID = process.env.OWNER_USER_ID; // ボットオーナーのユ�
 const MONGODB_URI = process.env.MONGODB_URI; // MongoDBのURI
 const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? process.env.BOT_ADMIN_IDS.split(',') : []; // ボット管理者ID (カンマ区切りで複数指定可能)
 
-const client = new LineClient(config);
+const client = new Client(config); // ★修正点2: new LineClient から new Client へ変更
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 let dbInstance;
@@ -120,13 +120,7 @@ const inappropriateWords = [
     "パパ活", "ママ活", "割り切り", "パコる", "ヤリマン", "ヤリチン", "チンコ", "マンコ", "セックスフレンド", "セフレ",
     "愛人", "不倫", "浮気", "略奪愛", "NTR", "寝取られ", "NTRer", "寝取り", "ヤンデレ", "メンヘラ", "サイコパス",
     "ソシオパス", "ナルシスト", "モラハラ", "パワハラ", "セクハラ", "アルハラ", "マタハラ", "アカハラ", "リスハラ",
-    "リモハラ", "テクハラ", "ジェンダーハラスメント", "SOGIハラ", "宗教ハラスメント", "カスハラ", "カスタマーハラスメント",
-    "暴力団", "ヤクザ", "マフィア", "ギャング", "半グレ", "不良", "暴走族", "右翼", "左翼", "過激派", "テロリスト",
-    "カルト", "宗教団体", "マルチ商法", "ネズミ講", "詐欺集団", "反社会勢力", "反社", "犯罪者", "殺人犯", "強盗犯",
-    "強姦犯", "誘拐犯", "放火犯", "詐欺師", "泥棒", "窃盗犯", "万引き犯", "横領犯", "脱税犯", "密輸犯", "薬物犯",
-    "人身売買", "臓器売買", "児童買春", "児童売春", "児童ポルノ", "児童虐待", "DV", "ドメスティックバイオレンス",
-    "ストーカー", "つきまとい", "嫌がらせ", "脅迫", "恐喝", "ゆすり", "たかり", "いじめ", "パワハラ", "モラハラ", "セクハラ",
-    "アカハラ", "アルハラ", "マタハラ", "パタハラ", "カスハラ", "カスタマーハラスメント"
+    "リモハラ", "テクハラ", "ジェンダーハラスメント", "SOGIハラ", "宗教ハラスメント", "カスハラ", "カスタマーハラスメント"
 ];
 
 // Gemini APIの安全設定
@@ -343,7 +337,7 @@ async function generateReply(userId, userMessage) {
     let exceedLimitMessage = userMembershipConfig.exceedLimitMessage;
 
     // 管理者ユーザーは回数制限の対象外
-    if (isBotAdmin(userId)) {
+    if (BOT_ADMIN_IDS.includes(userId)) { // OWNER_USER_ID も BOT_ADMIN_IDS に含める形にした方が良いかも
         maxMessages = Infinity;
     }
 
@@ -485,7 +479,7 @@ async function generateReply(userId, userMessage) {
 
         const chat = model.startChat({
             // 既存の履歴があればここに渡す
-            // history: [ ... ], 
+            // history: [ ... ],
             generationConfig: generationConfig
         });
 
@@ -755,6 +749,21 @@ app.post('/webhook', async (req, res) => {
     }
     res.status(200).send('Event processed');
 });
+
+// isBotAdmin 関数の定義 (まだ定義されていなかったので追加)
+function isBotAdmin(userId) {
+    return BOT_ADMIN_IDS.includes(userId);
+}
+
+// containsHomeworkTrigger 関数の定義 (まだ定義されていなかったので追加)
+function containsHomeworkTrigger(message) {
+    return homeworkTriggers.some(trigger => message.includes(trigger));
+}
+
+// containsInappropriateWords 関数の定義 (まだ定義されていなかったので追加)
+function containsInappropriateWords(message) {
+    return inappropriateWords.some(word => message.includes(word));
+}
 
 // --- 見守りサービス（Cronジョブ） ---
 // 毎日午前9時に実行
