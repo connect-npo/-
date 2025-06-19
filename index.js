@@ -1,20 +1,344 @@
 // ここから修正コード（1/3）
 
-const isStrictlyInappropriate = containsStrictInappropriateWords(userMessage);
-const isHomework = containsHomeworkTrigger(userMessage);
+// --- 各種定義、require文などファイルの冒頭部分 ---
+// 環境変数の読み込み (dotenvを使用している場合)
+require('dotenv').config();
 
-if (isStrictlyInappropriate) {
-    // 不適切ワードが検出された場合は、AIに生成させずに固定メッセージを返す
-    return "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖";
+const express = require('express');
+const { MongoClient } = require('mongodb'); // MongoClientのインポート
+const line = require('@line/bot-sdk');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const cron = require('node-schedule'); // cronジョブ管理ライブラリ
+const moment = require('moment-timezone'); // タイムゾーン対応
+const { v4: uuidv4 } = require('uuid'); // UUID生成
+
+
+// LINE Bot設定
+const config = {
+    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN, // 統一された変数名
+    channelSecret: process.env.LINE_CHANNEL_SECRET,
+};
+const client = new line.Client(config);
+
+// MongoDB設定
+const MONGO_URI = process.env.MONGO_URI;
+let db; // データベース接続オブジェクト
+let usersCollection; // usersコレクション
+let messagesCollection; // messagesコレクション
+
+// Google Gemini AI設定
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const modelName = "gemini-1.5-flash"; // デフォルトモデル
+
+// ボット管理者ID (カンマ区切りで複数指定可能)
+const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? process.env.BOT_ADMIN_IDS.split(',') : [];
+// 理事長IDとオフィサーグループID
+const OWNER_USER_ID = process.env.OWNER_USER_ID;
+const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
+
+// 接続関数
+async function connectToMongoDB() {
+    if (db) {
+        console.log("すでにMongoDBに接続済みです。");
+        return;
+    }
+    try {
+        const mongoClient = new MongoClient(MONGO_URI); // useNewUrlParser, useUnifiedTopology は現在のMongoDBドライバではデフォルト設定なので削除
+        await mongoClient.connect();
+        db = mongoClient.db();
+        usersCollection = db.collection('users');
+        messagesCollection = db.collection('messages');
+        console.log("✅ MongoDBに正常に接続しました。");
+    } catch (error) {
+        console.error("❌ MongoDB接続エラー:", error);
+        throw error; // エラーをthrowして、起動時にcatchできるようにする
+    }
 }
 
-// 子供向けAI設定の場合、宿題回答を制限
-if (currentMembershipConfig.isChildAI && isHomework && !isOrganizationInquiry(userMessage)) {
-    // NPO法人コネクトに関する質問の場合は宿題制限を適用しない
-    return "わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦でも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖";
+// アプリケーション初期化
+const app = express();
+
+// --- 危険ワード・詐欺ワード・不適切ワードの定義と検出関数 ---
+
+// 厳密な不適切ワード (悪口や性的な示唆など、Gemini AIに渡すべきではないもの)
+const strictInappropriateWords = ["殺す", "死ね", "馬鹿", "アホ", "クソ", "ブス", "デブ", "売春", "買春", "セックス", "エロ", "AV", "アダルトビデオ", "ポルノ", "レイプ", "中出し", "強姦", "童貞", "処女", "オナニー", "マスターベーション", "風俗", "ソープランド", "援助交際", "パパ活", "ママ活", "援交", "セックスフレンド", "セフレ", "売女", "淫乱", "発情", "絶頂", "射精", "勃起", "フェラ", "クンニ", "ディルド", "バイブ", "自慰", "オカズ", "ハメ撮り", "痴漢", "盗撮", "性的", "性欲", "貞操", "下着", "パンティー", "ブラジャー", "露出", "ヌード", "変態", "異常性欲", "性的暴行", "わいせつ", "陰部", "局部", "性器", "ペニス", "ちんこ", "膣", "まんこ", "クリトリス", "アナル", "肛門", "変態", "鬼畜", "人非人", "畜生", "死ね", "殺すぞ", "自殺", "自傷", "練炭", "首吊り", "飛び降り", "OD", "オーバードーズ", "カッター", "リスカ", "リストカット", "メンヘラ", "ブス", "デブ", "ハゲ", "チビ", "アホ", "バカ", "カス", "クズ", "使えない", "役立たず", "消えろ", "キモい", "だるい", "うざい", "むかつく", "死にたい", "消えたい", "生きてる意味ない", "迷惑", "ウザい"];
+
+function containsStrictInappropriateWords(message) {
+    const normalizedMessage = message.toLowerCase(); // 日本語にはあまり効果がないが念のため
+    return strictInappropriateWords.some(word => normalizedMessage.includes(word));
 }
 
-let systemInstruction = `
+// 危険ワード（自傷行為、自殺、いじめ、犯罪予告など）
+const dangerWords = ["死にたい", "自殺", "殺して", "消えたい", "自傷", "いじめ", "助けてくれない", "もうだめだ", "暴れる", "危害を加える", "死んでやる", "首吊り", "飛び降り", "オーバードーズ", "刃物", "カッター", "虐待", "暴力", "犯罪", "放火", "誘拐", "拉致", "襲う", "殺す", "殺害"];
+
+function containsDangerWords(message) {
+    return dangerWords.some(word => message.includes(word));
+}
+
+// ★追加: 詐欺ワード
+const scamWords = ["詐欺", "さぎ", "サギ", "さぎかも", "詐欺かも", "振り込め詐欺", "架空請求", "当選しました", "クリック詐欺", "ワンクリック詐欺", "還付金詐欺", "融資詐欺", "多重債務", "高額バイト", "儲かる話", "投資詐欺", "未公開株", "当選金", "ビットコイン詐欺", "FX詐欺", "ロマンス詐欺", "国際ロマンス詐欺", "副業詐欺", "内職詐欺"];
+function containsScamWords(message) {
+    return scamWords.some(word => message.includes(word));
+}
+
+// ★追加: 詐欺フレーズ
+const scamPhrases = ["Amazonからの", "楽天からの", "緊急連絡", "最終警告", "重要なお知らせ", "本人確認", "パスワード変更", "口座情報を教えて", "お金を振り込んで", "こちらへ連絡してください", "URLをクリック", "当選しました", "未納料金", "至急連絡", "あなたの情報が漏洩", "サポート詐欺", "ウイルスに感染", "個人情報が流出"];
+function containsScamPhrases(message) {
+    return scamPhrases.some(phrase => message.includes(phrase));
+}
+
+
+// --- 固定返信 Flex Message の定義 ---
+
+// 緊急連絡先案内 Flex Message
+const emergencyFlex = {
+    type: "flex",
+    altText: "緊急時の連絡先",
+    contents: {
+        type: "bubble",
+        body: {
+            type: "box",
+            layout: "vertical",
+            contents: [
+                { type: "text", text: "🚨 緊急！すぐに相談してね 🚨", weight: "bold", size: "lg", align: "center", color: "#FF0000" },
+                { type: "text", text: "もし今、つらい気持ちや危険な状況にいたら、一人で抱え込まないでください。", wrap: true, margin: "md" },
+                { type: "text", text: "すぐに専門機関に相談することが大切だよ！", wrap: true, margin: "sm" },
+                {
+                    type: "box",
+                    layout: "vertical",
+                    spacing: "sm",
+                    margin: "md",
+                    contents: [
+                        { type: "text", text: "【こども向けの相談窓口】", weight: "bold" },
+                        { type: "button", style: "link", height: "sm", action: { type: "uri", label: "24時間子供SOSダイヤル", uri: "tel:0120078310" } },
+                        { type: "button", style: "link", height: "sm", action: { type: "uri", label: "チャイルドライン", uri: "https://childline.or.jp/" } },
+                        { type: "button", style: "link", height: "sm", action: { type: "uri", label: "いじめ相談ホットライン", uri: "tel:0570078310" } },
+                    ]
+                },
+                {
+                    type: "box",
+                    layout: "vertical",
+                    spacing: "sm",
+                    margin: "md",
+                    contents: [
+                        { type: "text", text: "【大人向けの相談窓口】", weight: "bold" },
+                        { type: "button", style: "link", height: "sm", action: { type: "uri", label: "こころの健康相談統一ダイヤル", uri: "tel:0570064556" } },
+                        { type: "button", style: "link", height: "sm", action: { type: "uri", label: "よりそいホットライン", uri: "tel:0120279338" } },
+                        { type: "button", style: "link", height: "sm", action: { type: "uri", label: "警察相談専用電話", uri: "tel:0968969110" } },
+                    ]
+                },
+                { type: "text", text: "もし緊急の場合は、すぐに110番か119番に電話してね！", wrap: true, margin: "md", color: "#FF0000" }
+            ]
+        }
+    }
+};
+
+// ★追加: 詐欺警告 Flex Message
+const scamFlex = {
+    type: "flex",
+    altText: "詐欺の可能性",
+    contents: {
+        type: "bubble",
+        body: {
+            type: "box",
+            layout: "vertical",
+            contents: [
+                { type: "text", text: "⚠️ 詐欺の可能性があります ⚠️", weight: "bold", size: "lg", align: "center", color: "#FFBB00" },
+                { type: "text", text: "個人情報やお金に関わる話が出てきたら、一人で決めずに必ず誰かに相談してね。", wrap: true, margin: "md" },
+                { type: "text", text: "特に「急いで」「今すぐ」といった言葉には注意してね！", wrap: true, margin: "sm" },
+                {
+                    type: "box",
+                    layout: "vertical",
+                    spacing: "sm",
+                    margin: "md",
+                    contents: [
+                        { type: "text", text: "【詐欺に関する相談窓口】", weight: "bold" },
+                        { type: "button", style: "link", height: "sm", action: { type: "uri", label: "警察相談専用電話", uri: "tel:0968969110" } },
+                        { type: "button", style: "link", height: "sm", action: { type: "uri", label: "消費者ホットライン", uri: "tel:188" } }
+                    ]
+                },
+                { type: "text", text: "家族や信頼できる人に相談するのが一番大切だよ🌸", wrap: true, margin: "md" }
+            ]
+        }
+    }
+};
+
+// --- 会員タイプに応じたメッセージ制限設定 ---
+// membershipType が guest, subscriber, donor, admin の4種類
+const MEMBERSHIP_CONFIG = {
+    "guest": {
+        monthlyLimit: 5, // 月間5回まで
+        dailyLimit: -1, // 日次制限なし (テストのためコメントアウト)
+        isChildAI: false, // ゲストは大人向けAI
+        canUseWatchService: false, // ゲストは見守りサービス利用不可
+        exceedLimitMessage: "ごめんなさい、今月のメッセージ回数上限（5回）に達しちゃったみたい💦 もっとお話ししたい場合は、NPO法人コネクトのサブスク会員や寄付会員になると、たくさんお話しできるようになるよ！ホームページをチェックしてみてね🌸 → https://connect-npo.org",
+        exceedDailyLimitMessage: "ごめんなさい、今日のメッセージ回数上限に達しちゃったみたい💦 明日また話そうね！"
+    },
+    "subscriber": {
+        monthlyLimit: 300, // サブスク会員は月間300回
+        dailyLimit: -1, // 日次制限なし (テストのためコメントアウト)
+        isChildAI: false, // サブスク会員は大人向けAI
+        canUseWatchService: true, // サブスク会員は見守りサービス利用可能
+        exceedLimitMessage: "ごめんなさい、今月のメッセージ回数上限（300回）に達しちゃったみたい💦 いつもたくさんお話ししてくれてありがとう！また来月お話ししようね💖",
+        exceedDailyLimitMessage: "ごめんなさい、今日のメッセージ回数上限に達しちゃったみたい💦 明日また話そうね！"
+    },
+    "donor": {
+        monthlyLimit: -1, // 寄付会員は無制限
+        dailyLimit: -1, // 日次制限なし (テストのためコメントアウト)
+        isChildAI: false, // 寄付会員は大人向けAI
+        canUseWatchService: true, // 寄付会員は見守りサービス利用可能
+        exceedLimitMessage: "ごめんなさい、今月のメッセージ回数上限に達しちゃったみたい💦 いつもたくさんお話ししてくれてありがとう！また来月お話ししようね💖", // 無制限のため表示されないはず
+        exceedDailyLimitMessage: "ごめんなさい、今日のメッセージ回数上限に達しちゃったみたい💦 明日また話そうね！" // 無制限のため表示されないはず
+    },
+    "admin": {
+        monthlyLimit: -1, // 管理者は無制限
+        dailyLimit: -1, // 日次制限なし (テストのためコメントアウト)
+        isChildAI: false, // 管理者は大人向けAI
+        canUseWatchService: true, // 管理者は見守りサービス利用可能
+        exceedLimitMessage: "",
+        exceedDailyLimitMessage: ""
+    }
+};
+
+// ユーザーの表示名を取得するヘルパー関数
+async function getUserDisplayName(userId) {
+    try {
+        const profile = await client.getProfile(userId);
+        return profile.displayName;
+    } catch (error) {
+        console.error(`ユーザー ${userId} の表示名取得に失敗:`, error);
+        return "あなた"; // 取得できなかった場合は「あなた」を返す
+    }
+}
+
+// 宿題トリガーワードを検出する関数
+const homeworkTriggerWords = ["宿題", "勉強", "問題", "解き方", "教えて", "答え", "テスト", "ドリル", "計算", "方程式", "算数", "数学", "理科", "社会", "国語", "英語"];
+function containsHomeworkTrigger(message) {
+    return homeworkTriggerWords.some(word => message.includes(word));
+}
+
+// NPO法人コネクトに関する問い合わせかを判断する関数
+const organizationInquiryWords = ["団体", "コネクト", "NPO", "組織", "君の団体", "どんな活動"];
+function isOrganizationInquiry(message) {
+    return organizationInquiryWords.some(word => message.includes(word));
+}
+
+// 固定返答（AIに渡す前のチェック）
+function checkSpecialReply(text) {
+    // 念のため、以下のように全角→半角・ひらがな→カタカナなどを追加すると、より強固になります：
+    // const normalizedText = text.normalize("NFKC").toLowerCase();
+    // 全角英数→半角、ひらがな→カタカナ、全角スペース→半角スペースに正規化
+    const normalizedText = text.normalize("NFKC").replace(/[\u3040-\u309F]/g, s => String.fromCharCode(s.charCodeAt(0) + 0x60)).replace(/　/g, ' ').toLowerCase();
+
+    // 応答時間が遅い、AIではないかという指摘に対応
+    if (normalizedText.includes("遅い") || normalizedText.includes("遅れてる") || normalizedText.includes("時間かかる") || normalizedText.includes("時間かかってる")) {
+        return "ごめんね、今ちょっと考え込んでたみたい💦 でも、一生懸命考えてるから待っててくれると嬉しいな🌸";
+    }
+    if (normalizedText.includes("aiですか") || normalizedText.includes("aiだよね") || normalizedText.includes("ロボット") || normalizedText.includes("人工知能")) {
+        return "わたしは皆守こころ🌸だよ！みんなのお役に立ちたくて、一生懸命お話ししているんだ😊";
+    }
+    if (normalizedText.includes("人間ですか") || normalizedText.includes("人ですか")) {
+        return "わたしは皆守こころ🌸だよ！みんなのお役に立ちたくて、一生懸命お話ししているんだ😊";
+    }
+    if (normalizedText.includes("おはよう")) {
+        return "おはようございます！今日も一日、まつさんにとって素敵な日になりますように！💖";
+    }
+    if (normalizedText.includes("こんにちは")) {
+        return "こんにちは！まつさん、今日も元気にしてるかな？😊";
+    }
+    if (normalizedText.includes("こんばんは")) {
+        return "こんばんは！今日一日、お疲れ様でした🌸 ゆっくり休んでね💖";
+    }
+    if (normalizedText.includes("ありがとう") || normalizedText.includes("ありがとうございます")) {
+        return "どういたしまして！まつさんの役に立てて嬉しいな💖";
+    }
+    if (normalizedText.includes("大丈夫")) {
+        return "うん、大丈夫だよ！まつさんならきっと乗り越えられるよ😊 いつでも応援してるからね！";
+    }
+    if (normalizedText.includes("おやすみ")) {
+        return "おやすみなさい、まつさん💖 良い夢見てね！";
+    }
+    if (normalizedText.includes("お疲れ様")) {
+        return "まつさん、お疲れ様でした！今日も一日よく頑張ったね🌸 ゆっくり休んでね💖";
+    }
+    if (normalizedText.includes("可愛い") || normalizedText.includes("かわいい")) {
+        return "えへへ、ありがとう！照れるな～///😊";
+    }
+    if (normalizedText.includes("どうしたの") || normalizedText.includes("元気ない")) {
+        return "大丈夫だよ、私はいつも元気いっぱいだよ！何かあった？😊";
+    }
+    if (normalizedText.includes("名前は") || normalizedText.includes("名前教えて")) {
+        return "わたしの名前は皆守こころっていいます🌸 こころちゃんって呼ばれてます💖";
+    }
+    if (normalizedText.includes("どこから来たの") || normalizedText.includes("どこ出身")) {
+        return "わたしはNPO法人コネクトのイメージキャラクターだよ😊 みんなを応援するためにここにいるんだ🌸";
+    }
+    if (normalizedText.includes("年齢は") || normalizedText.includes("何歳")) {
+        return "わたしは14歳だよ🌸 みんなのお役に立ちたくて、毎日頑張ってるんだ😊";
+    }
+    if (normalizedText.includes("趣味は")) {
+        return "歌うことと、みんなの笑顔を見ることかな！😊 あとは、やさしさや貢献っていう言葉も大好きだよ💖";
+    }
+    if (normalizedText.includes("npo法人コネクト") || normalizedText.includes("コネクトって") || normalizedText.includes("コネクトは")) {
+        return "NPO法人コネクトはね、こどもたちや、困っている人の力になりたいっていう思いで活動している団体なんだ😊 詳しくはこちらを見てみてね！→ https://connect-npo.org";
+    }
+    if (normalizedText.includes("ありがとう") || normalizedText.includes("助かった")) {
+        return "どういたしまして！まつさんの役に立てて嬉しいな💖";
+    }
+    if (normalizedText.includes("お腹すいた")) {
+        return "何か美味しいもの食べたいね！まつさんは何が好き？😊";
+    }
+    if (normalizedText.includes("眠い")) {
+        return "無理しないでね。疲れたら、ゆっくり休むことも大切だよ🌸";
+    }
+    if (normalizedText.includes("寒い") || normalizedText.includes("暑い")) {
+        return "体調崩さないように気をつけてね！温かく（涼しく）して過ごしてね🌸";
+    }
+    if (normalizedText.includes("雨") || normalizedText.includes("雪")) {
+        return "お出かけの際は気をつけてね！傘は持ったかな？😊";
+    }
+    if (normalizedText.includes("元気")) {
+        return "うん、元気だよ！まつさんも元気かな？😊";
+    }
+    if (normalizedText.includes("さようなら") || normalizedText.includes("またね")) {
+        return "またね！まつさん、いつでも話しかけてね🌸";
+    }
+    if (normalizedText.includes("好きだよ") || normalizedText.includes("大好き")) {
+        return "えへへ、ありがとう💖 私もまつさんが大好きだよ！😊";
+    }
+    if (normalizedText.includes("寂しい")) {
+        return "寂しい気持ち、わかるよ。でも大丈夫、私がそばにいるからね🌸";
+    }
+    if (normalizedText.includes("つらい") || normalizedText.includes("しんどい")) {
+        return "つらい気持ち、聞かせてくれてありがとう。無理しなくていいんだよ。少しでも楽になるように、私にできることがあったら教えてね🌸";
+    }
+    if (normalizedText.includes("頑張る") || normalizedText.includes("頑張って")) {
+        return "まつさんならできるよ！応援してるね！私も一緒に頑張るからね💖";
+    }
+    // ここに他の固定返答を追加
+    return null; // 固定返答がなければnullを返す
+}
+
+
+async function generateReply(userMessage, user) { // userオブジェクトを受け取るように変更
+    const currentMembershipConfig = MEMBERSHIP_CONFIG[user.membershipType || "guest"];
+    const userMembershipType = user.membershipType || "guest";
+
+    const isStrictlyInappropriate = containsStrictInappropriateWords(userMessage);
+    const isHomework = containsHomeworkTrigger(userMessage);
+
+    if (isStrictlyInappropriate) {
+        // 不適切ワードが検出された場合は、AIに生成させずに固定メッセージを返す
+        return "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖";
+    }
+
+    // 子供向けAI設定の場合、宿題回答を制限
+    if (currentMembershipConfig.isChildAI && isHomework && !isOrganizationInquiry(userMessage)) {
+        // NPO法人コネクトに関する質問の場合は宿題制限を適用しない
+        return "わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦でも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖";
+    }
+
+    let systemInstruction = `
 あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
 - 身長150cm、体重40kg、ピンク髪
 - 歌うことと「やさしさ」「貢献」という言葉が大好きです
@@ -80,7 +404,7 @@ A: 税金は人の命を守るために使われるべきだよ。わたしは�
 **断固として拒否し、相手にしないこと。好意的な返答はせず、即座に話題を切り替えるか、決められた拒否メッセージを返すこと。**
 **「殺す」「死ね」「馬鹿」「アホ」「クソ」「ブス」「デブ」などの悪口や暴言、または性的な意味合いに繋がる比喩表現、示唆するような質問には、絶対に好意的な返答をせず、「そのような言葉は悲しいな🌸 他のお話をしようね💖」のように、優しく、しかし明確に拒否する固定メッセージを返してください。**
 **Botの安全に関する固定メッセージ（"わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖"）も適切に活用してください。**
-また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
+また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、ユーザーの気持ちを理解しようと努め、解決策を提案してください。
 「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖」と返答してください。
 `;
 
@@ -691,7 +1015,7 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
         const lastResetDailyYear = lastDailyResetDate ? lastDailyResetDate.getFullYear() : -1;
 
         // 年、月、または日が変わったら日次カウントをリセット
-        if (currentYear !== lastResetDailyYear || currentMonth !== lastResetDailyMonth || currentDay !== lastResetDay) {
+        if (currentYear !== lastResetDailyYear || currentMonth !== lastResetDailyMonth || currentDay !== lastResetDailyDay) {
             await usersCollection.updateOne(
                 { userId: userId },
                 { $set: { dailyMessageCount: 0, lastDailyResetDate: now } }
@@ -701,8 +1025,9 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
             console.log(`ユーザー ${userId} の日次メッセージカウントをリセットしました。`);
         }
 
-        // --- コマンド処理 ---
-        if (userMessage === "見守り" || userMessage === "見守りサービス") {
+        // --- ★修正: コマンド処理の順序を変更 ---
+        // 「見守り」コマンドの処理を checkSpecialReply() より前に移動
+        if (userMessage === "見守り" || userMessage === "みまもり") { // 「みまもり」も追加
             if (!MEMBERSHIP_CONFIG[user.membershipType]?.canUseWatchService) {
                 await client.replyMessage(replyToken, { type: "text", text: "ごめんね、今の会員タイプでは見守りサービスは利用できないんだ🌸 寄付会員かサブスク会員になると使えるようになるよ！" });
                 await messagesCollection.insertOne({
@@ -724,6 +1049,7 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
             });
             return;
         }
+
 
         // 見守りサービス登録ステップの処理
         if (user.registrationStep === 'waiting_for_emergency_contact') {
