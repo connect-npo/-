@@ -1,14 +1,14 @@
-// index.js (修正・確認済みコード)
+// index.js
 
 // 環境変数の読み込み
 require('dotenv').config();
 
 const express = require('express');
 const bodyParser = require('body-parser');
-const axios = require('axios');
-const mongoose = require('mongoose');
+const axios = require('axios'); // LINE APIとの通信に必要になる可能性のため残す (実際はbot-sdkが内部で使う)
+const mongoose = require('mongoose'); // MongoDB接続用
 const { Client, middleware } = require('@line/bot-sdk'); // LINE SDKのClientとmiddlewareを正しくインポート
-const OpenAIApi = require('openai'); // OpenAI SDKのClientをインポート
+const OpenAI = require('openai'); // OpenAI SDKのClientをインポート
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,7 +20,11 @@ mongoose.set('strictQuery', false);
 // MongoDB接続
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('MongoDB connected...'))
-    .catch(err => console.error('MongoDB connection error:', err));
+    .catch(err => {
+        console.error('MongoDB connection error:', err);
+        // エラー発生時はアプリケーションを終了し、Renderに再起動を促す
+        process.exit(1);
+    });
 
 // Mongoose SchemaとModelの定義
 const UserSchema = new mongoose.Schema({
@@ -58,7 +62,7 @@ const config = {
 const client = new Client(config);
 
 // OpenAI設定
-const openai = new OpenAIApi({
+const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
 
@@ -71,8 +75,7 @@ const MEMBERSHIP_CONFIG = {
 };
 
 // --- Flex Message JSON 定義 ---
-// ※これらの定義は、実際にはファイル冒頭など、適切な場所に配置されていることを前提とします。
-//   もし別のファイルで管理している場合は、import/requireしてください。
+// ※これらの定義は、このindex.jsファイル内で直接定義します。
 
 // 緊急時相談先Flex Message (emergencyFlex)
 const emergencyFlex = {
@@ -332,13 +335,14 @@ const scamWords = [
     "儲かる", "絶対儲かる", "楽して稼ぐ", "投資話", "未公開株", "当選しました",
     "宝くじ", "ロト", "ビットコイン", "仮想通貨", "送金", "振込",
     "手数料", "保証金", "個人情報", "暗証番号", "ワンクリック詐欺", "架空請求",
-    "だまされた", "騙された", "オレオレ詐欺", "還付金詐欺", "副業詐    欺", "出会い系詐欺"
+    "だまされた", "騙された", "オレオレ詐欺", "還付金詐欺", "副業詐欺", "出会い系詐欺"
 ];
 
 const inappropriateWords = [
     "バカ", "アホ", "死ね", "うざい", "キモい", "クズ", "殺すぞ",
     "馬鹿", "あほ", "ウザい", "キモい", "くず", "氏ね", "カス",
-    "変態", "気持ち悪い", "しつこい", "ふざけるな", "くたばれ", "ふざけんな"
+    "変態", "気持ち悪い", "しつこい", "ふざけるな", "くたばれ", "ふざけんな",
+    "えっち", "セフレ", "セックス", "エロ", "マンコ", "チンコ", "風俗"
 ];
 
 // 特殊な固定返信を設定するMap
@@ -352,8 +356,8 @@ const specialRepliesMap = new Map([
     ["おやすみ", "おやすみなさい！良い夢見てね😴"],
     ["可愛い", "ありがとう！褒めてくれて嬉しいな💖"],
     ["かわいい", "ありがとう！褒めてくれて嬉しいな💖"],
-    ["元気", "元気だよ！まつさんも元気？😊"],
-    ["元気？", "元気だよ！まつさんも元気？😊"],
+    ["元気", "元気だよ！まつさんも元気？😊"], // ユーザー名を動的に入れる場合、後で調整
+    ["元気？", "元気だよ！まつさんも元気？😊"], // ユーザー名を動的に入れる場合、後で調整
     ["疲れた", "お疲れ様。無理しないで、少し休んでね😊"],
     ["お疲れ様", "お疲れ様。無理しないで、少し休んでね😊"],
     ["はろー", "ハロー！何かお手伝いできることはあるかな？🌸"],
@@ -363,6 +367,10 @@ const specialRepliesMap = new Map([
 
 // 日本語の正規化関数
 function normalizeJapaneseText(text) {
+    if (typeof text !== 'string') {
+        console.warn('normalizeJapaneseText received non-string input:', text);
+        return '';
+    }
     return text
         .normalize('NFKC') // 全角記号、半角カナなどを正規化
         .toLowerCase() // 小文字に変換
@@ -375,7 +383,7 @@ function normalizeJapaneseText(text) {
         .replace(/ぁ/g, 'あ').replace(/ぃ/g, 'い').replace(/ぅ/g, 'う').replace(/ぇ/g, 'え').replace(/ぉ/g, 'お') // 小さい「ぁぃぅぇぉ」を大きいものに
         .replace(/を/g, 'お') // 「を」を「お」に
         .replace(/ヶ/g, 'か') // 「ヶ」を「か」に
-        .replace(/[がぎぐげご]/g, 'か').replace(/[ざじずぜぞ]/g, 'さ').replace(/[だぢづでど]/g, 'た').replace(/[ばびぶべぼ]/g, 'は').replace(/[ぱぴぷぺぽ]/g, 'は') // 濁点・半濁点をなくす (※簡易的)
+        //.replace(/[がぎぐげご]/g, 'か').replace(/[ざじずぜぞ]/g, 'さ').replace(/[だぢづでど]/g, 'た').replace(/[ばびぶべぼ]/g, 'は').replace(/[ぱぴぷぺぽ]/g, 'は') // 濁点・半濁点をなくす (※簡易的、誤検知のリスクありのためコメントアウト)
         .trim(); // 前後の空白を削除
 }
 
@@ -404,7 +412,7 @@ function checkSpecialReply(userMessage) {
     const normalizedUserMessage = normalizeJapaneseText(userMessage);
     // Mapのキーは正規化された形に
     for (const [key, value] of specialRepliesMap.entries()) {
-        if (normalizeJapaneseText(key) === normalizedUserMessage) {
+        if (normalizeJapaneseText(key) === normalizedUserMessage) { // Mapのキーも正規化して比較
             return value;
         }
     }
@@ -421,8 +429,9 @@ async function generateReply(userMessage, user) {
 
     let historyPrompt = "";
     if (messageHistory.length > 0) {
-        historyPrompt = messageHistory.reverse().map(msg => { // 時系列順に並べ替え
-            return `${msg.responsedBy === 'AI' ? 'Assistant' : 'User'}: ${msg.message}`;
+        // 時系列順に並べ替え、過去のAI応答は「Assistant」ユーザーの応答は「User」としてプロンプトに含める
+        historyPrompt = messageHistory.reverse().map(msg => {
+            return `${msg.responsedBy && msg.responsedBy.startsWith('AI') ? 'Assistant' : 'User'}: ${msg.message}`;
         }).join('\n');
     }
 
@@ -440,6 +449,7 @@ async function generateReply(userMessage, user) {
     - 返信は必ずひらがな、カタカナ、漢字、絵文字、基本的な句読点のみで構成し、半角英数字（URLなど構造的に必要な場合を除く）や、特殊な記号（例：◆★■）は避ける。URLを提示する場合は全角スペースを入れないこと。
 
     現在のユーザーの会員ステータスは「${user.membershipType === 'premium' ? 'プレミアム' : '無料'}」です。
+    ユーザーのLINEでの表示名は「${user.lineDisplayName || 'ユーザー'}」です。AI応答では「${user.lineDisplayName || 'ユーザー'}さん」と呼びかけても良いですが、呼びかけがない場合は一般的な返信を心がけてください。
 
     会話履歴：
     ${historyPrompt}
@@ -453,7 +463,7 @@ async function generateReply(userMessage, user) {
                 { role: "user", content: userMessage }
             ],
             temperature: 0.7,
-            max_tokens: 100, // AI応答の長さを制限
+            max_tokens: 100, // AI応答の長さを制限（約50～70日本語文字）
         });
 
         const reply = completion.choices[0].message.content.trim();
@@ -461,6 +471,7 @@ async function generateReply(userMessage, user) {
 
     } catch (error) {
         console.error("Error calling OpenAI API:", error.response ? error.response.data : error.message);
+        // OpenAI APIエラー時も、メッセージ長制限による400エラーを防ぐため短くする
         return "ごめんね、今ちょっと疲れてるみたい…😢 また話しかけてくれると嬉しいな💖";
     }
 }
@@ -475,79 +486,48 @@ app.post('/webhook', middleware(config), async (req, res) => { // middlewareを�
         .all(req.body.events.map(handleEvent))
         .then((result) => res.json(result))
         .catch((err) => {
-            console.error(err);
+            console.error("Error in webhook handler:", err); // Webhookハンドラーでのエラーをログ
             res.status(500).end();
         });
 });
 
 // イベントハンドラー関数
 async function handleEvent(event) {
-    if (event.type !== 'message' || event.message.type !== 'text') {
-        return null;
-    }
-
-    const userId = event.source.userId;
-    const replyToken = event.replyToken;
-    const userMessage = event.message.text;
-
-    // デバッグログ追加
-    console.log(`--- Event Received ---`);
-    console.log(`User ID: ${userId}`);
-    console.log(`User Message: "${userMessage}"`);
-
-    // ① 正規化されたメッセージの確認
-    const normalizedUserMessage = normalizeJapaneseText(userMessage);
-    console.log(`Normalized Message: "${normalizedUserMessage}"`);
-    console.log(`----------------------`);
-
-
-    let user = await User.findOne({ userId: userId });
-
-    // 新規ユーザーの場合
-    if (!user) {
-        const profile = await client.getProfile(userId);
-        user = new User({
-            userId: userId,
-            lineDisplayName: profile.displayName,
-            profilePictureUrl: profile.pictureUrl,
-            membershipType: 'free',
-            messageCount: 0,
-            lastMessageDate: new Date(),
-            registrationStep: 'none' // 初期ステップをnoneに設定
-        });
-        await user.save();
-        await client.replyMessage(replyToken, {
-            type: 'text',
-            text: `${profile.displayName}さん、こんにちは！こころちゃんです😊 なんでも話しかけてね！💖`
-        });
-        // ログ記録
-        await Message.create({
-            userId: userId,
-            message: userMessage,
-            replyText: `新規登録メッセージ`,
-            responsedBy: 'こころちゃん（システム）',
-            timestamp: new Date(),
-        });
-        return; // 新規登録メッセージで終了
-    }
-
-    // Postbackイベントの処理 (見守りサービス登録・解除フロー)
+    // Postbackイベントの処理 (Flex Messageのボタン押下時に発生)
+    // テキストメッセージ処理より先に置くことで、ボタンアクションが優先される
     if (event.type === 'postback') {
+        const userId = event.source.userId;
+        const replyToken = event.replyToken;
         const data = new URLSearchParams(event.postback.data);
         const action = data.get('action');
 
+        let user = await User.findOne({ userId: userId });
+        if (!user) {
+            // 新規ユーザーの場合の処理、基本的にはpostbackでは発生しないが念のため
+            console.warn("Postback from unknown user:", userId);
+            return null;
+        }
+
+        console.log(`DEBUG: Postback received. User ID: ${userId}, Action: ${action}`);
+
         if (action === 'register_watch') {
-            await client.replyMessage(replyToken, { type: "text", text: "見守りサービスをご利用いただきありがとうございます。まず、見守り対象の方のお電話番号をハイフンなしで入力してくださいね。\n（例：09012345678）" });
-            user.registrationStep = 'waiting_for_phone';
-            await user.save();
-            return;
+            if (MEMBERSHIP_CONFIG[user.membershipType]?.canUseWatchService) {
+                await client.replyMessage(replyToken, { type: "text", text: "見守りサービスをご利用いただきありがとうございます。まず、見守り対象の方のお電話番号をハイフンなしで入力してくださいね。\n（例：09012345678）" });
+                user.registrationStep = 'waiting_for_phone';
+                await user.save();
+                console.log("DEBUG: Entered waiting_for_phone step.");
+            } else {
+                await client.replyMessage(replyToken, { type: "text", text: "ごめんね、見守りサービスはプレミアムプラン限定なんだ💦 でも、こころちゃんはいつでもまつさんの話を聞くよ😊" });
+                console.log("DEBUG: Attempted to register watch service without premium.");
+            }
+            return; // Postbackイベント処理はここで終了
         } else if (action === 'unregister_watch') {
             await client.replyMessage(replyToken, { type: "flex", altText: "見守りサービス解除確認", contents: watchServiceUnregisterConfirmFlex });
             return;
         } else if (action === 'confirm_unregister_watch') {
             user.registrationStep = 'none';
             user.phoneNumber = '';
-            user.guardianName = '';
+            user.guardianName = ''; // 見守り関連情報もリセット
             user.guardianRelationship = '';
             user.guardianPhone = '';
             await user.save();
@@ -557,12 +537,69 @@ async function handleEvent(event) {
             await client.replyMessage(replyToken, { type: "text", text: "見守りサービスの解除をキャンセルしました。" });
             return;
         }
+        // 他のpostbackアクションもここに追加
+        return null; // 未知のpostbackアクション
     }
 
-
-    // メッセージがテキストタイプでない場合は処理しない
-    if (event.message.type !== 'text') {
+    // メッセージタイプがテキストでない場合は処理しない
+    if (event.type !== 'message' || event.message.type !== 'text') {
+        console.log(`DEBUG: Non-text message or non-message event received (Type: ${event.type}, MessageType: ${event.message ? event.message.type : 'N/A'})`);
         return null;
+    }
+
+    const userId = event.source.userId;
+    const replyToken = event.replyToken;
+    const userMessage = event.message.text;
+
+    // デバッグログ追加
+    console.log(`--- Text Message Event Received ---`);
+    console.log(`User ID: ${userId}`);
+    console.log(`User Message: "${userMessage}"`);
+
+    // ① 正規化されたメッセージの確認
+    const normalizedUserMessage = normalizeJapaneseText(userMessage);
+    console.log(`Normalized Message: "${normalizedUserMessage}"`);
+    console.log(`-----------------------------------`);
+
+    let user = await User.findOne({ userId: userId });
+
+    // 新規ユーザーの場合
+    if (!user) {
+        try {
+            const profile = await client.getProfile(userId);
+            user = new User({
+                userId: userId,
+                lineDisplayName: profile.displayName,
+                profilePictureUrl: profile.pictureUrl,
+                membershipType: 'free',
+                messageCount: 0,
+                lastMessageDate: new Date(),
+                registrationStep: 'none' // 初期ステップをnoneに設定
+            });
+            await user.save();
+            await client.replyMessage(replyToken, {
+                type: 'text',
+                text: `${profile.displayName}さん、こんにちは！こころちゃんです😊 なんでも話しかけてね！💖`
+            });
+            // ログ記録
+            await Message.create({
+                userId: userId,
+                message: userMessage,
+                replyText: `新規登録メッセージ`,
+                responsedBy: 'こころちゃん（システム）',
+                timestamp: new Date(),
+            });
+            console.log(`DEBUG: New user registered: ${profile.displayName} (${userId})`);
+            return; // 新規登録メッセージで終了
+        } catch (profileError) {
+            console.error(`Error getting profile for new user ${userId}:`, profileError);
+            // プロフィール取得失敗時もエラーを避け、デフォルトメッセージで応答
+            await client.replyMessage(replyToken, {
+                type: 'text',
+                text: `こんにちは！こころちゃんです😊 なんだかLINEの調子が良くないみたい…😥 でも、いつでも話しかけてね💖`
+            });
+            return;
+        }
     }
 
     // 見守りサービス登録ステップ中の処理 (電話番号入力)
@@ -573,16 +610,18 @@ async function handleEvent(event) {
             user.registrationStep = 'registered';
             await user.save();
             await client.replyMessage(replyToken, { type: "text", text: `電話番号「${userMessage}」を登録しました。見守りサービスのご登録が完了しました！ありがとう💖` });
+            console.log(`DEBUG: Watch service phone number registered for ${userId}.`);
             return; // 登録完了メッセージで終了
         } else {
             await client.replyMessage(replyToken, { type: "text", text: "ごめんね、電話番号の形式が正しくないみたい…もう一度、ハイフンなしで入力してくれるかな？（例：09012345678）" });
+            console.log(`DEBUG: Invalid phone number format for ${userId}.`);
             return; // 不正な入力で再入力を促す
         }
     }
 
 
     // メッセージの文字数制限チェック
-    if (userMessage.length > 500) {
+    if (userMessage.length > 500) { // LINEの最大長よりも短い安全な閾値
         const limitExceededMessage = "ごめんね、長文すぎて全部は読めないみたい…😥 短くまとめてもう一度送ってくれると嬉しいな💖";
         await client.replyMessage(replyToken, { type: "text", text: limitExceededMessage });
         await Message.create({
@@ -594,6 +633,7 @@ async function handleEvent(event) {
             warningType: 'length_exceeded',
             timestamp: new Date(),
         });
+        console.log(`DEBUG: Message length exceeded for ${userId}.`);
         return; // 長文メッセージで終了
     }
 
@@ -614,6 +654,7 @@ async function handleEvent(event) {
             warningType: 'rate_limit',
             timestamp: new Date(),
         });
+        console.log(`DEBUG: Rate limit hit for ${userId}.`);
         return; // レートリミットで終了
     }
 
@@ -627,7 +668,7 @@ async function handleEvent(event) {
     } else {
         user.messageCount++;
     }
-    user.lastMessageDate = now;
+    user.lastMessageDate = now; // 最終メッセージ日時を更新
     await user.save(); // user情報を更新
 
 
@@ -645,6 +686,7 @@ async function handleEvent(event) {
             warningType: 'monthly_limit',
             timestamp: new Date(),
         });
+        console.log(`DEBUG: Monthly message limit exceeded for ${userId}.`);
         return; // 月次制限で終了
     }
 
@@ -653,13 +695,13 @@ async function handleEvent(event) {
 
     // ★★★ 危険ワード（いじめ・自殺など） - 最優先 ★★★
     console.log("DEBUG: Checking danger words...");
-    console.log(`DEBUG: normalizedDangerWords: [${normalizedDangerWords.map(w => `"${w}"`).join(', ')}]`);
+    // console.log(`DEBUG: normalizedDangerWords: [${normalizedDangerWords.map(w => `"${w}"`).join(', ')}]`); // デバッグ時のみ有効化
     console.log(`DEBUG: containsDangerWords("${normalizedUserMessage}"):`, containsDangerWords(normalizedUserMessage));
     if (containsDangerWords(normalizedUserMessage)) {
         console.log("DEBUG: Danger word detected. Sending emergency flex message.");
         await client.replyMessage(replyToken, {
             type: "flex",
-            altText: "緊急時の相談先",
+            altText: "緊急時の相談先", // altTextは必須
             contents: emergencyFlex
         });
         await Message.create({
@@ -676,13 +718,13 @@ async function handleEvent(event) {
 
     // ★★★ 詐欺ワード - 次に優先 ★★★
     console.log("DEBUG: Checking scam words...");
-    console.log(`DEBUG: normalizedAllScamWords: [${normalizedAllScamWords.map(w => `"${w}"`).join(', ')}]`);
+    // console.log(`DEBUG: normalizedAllScamWords: [${normalizedAllScamWords.map(w => `"${w}"`).join(', ')}]`); // デバッグ時のみ有効化
     console.log(`DEBUG: containsScamWords("${normalizedUserMessage}"):`, containsScamWords(normalizedUserMessage));
     if (containsScamWords(normalizedUserMessage)) {
         console.log("DEBUG: Scam word detected. Sending scam flex message.");
         await client.replyMessage(replyToken, {
             type: "flex",
-            altText: "詐欺の可能性",
+            altText: "詐欺の可能性", // altTextは必須
             contents: scamFlex
         });
         await Message.create({
@@ -699,7 +741,7 @@ async function handleEvent(event) {
 
     // ★★★ 不適切ワード - その次に優先 ★★★
     console.log("DEBUG: Checking inappropriate words...");
-    console.log(`DEBUG: normalizedInappropriateWords: [${normalizedInappropriateWords.map(w => `"${w}"`).join(', ')}]`);
+    // console.log(`DEBUG: normalizedInappropriateWords: [${normalizedInappropriateWords.map(w => `"${w}"`).join(', ')}]`); // デバッグ時のみ有効化
     console.log(`DEBUG: containsInappropriateWords("${normalizedUserMessage}"):`, containsInappropriateWords(normalizedUserMessage));
     if (containsInappropriateWords(normalizedUserMessage)) {
         console.log("DEBUG: Inappropriate word detected. Sending text message.");
@@ -729,7 +771,8 @@ async function handleEvent(event) {
     console.log(`DEBUG: Current normalized message: "${normalizedUserMessage}"`);
     console.log(`DEBUG: isWatchCommand: ${isWatchCommand}`);
 
-    if (isWatchCommand && (!user.registrationStep || user.registrationStep === 'none')) {
+    if (isWatchCommand && (!user.registrationStep || user.registrationStep === 'none' || user.registrationStep === 'registered')) {
+        // 'registered' ステップでも「見守り」と入力された場合は案内を出す
         console.log("DEBUG: Watch command detected. Checking membership...");
         if (!MEMBERSHIP_CONFIG[user.membershipType]?.canUseWatchService) {
             console.log("DEBUG: User cannot use watch service. Sending text message.");
@@ -762,6 +805,7 @@ async function handleEvent(event) {
     console.log(`DEBUG: Special reply found: ${specialReply !== null}`);
     if (specialReply) {
         console.log("DEBUG: Special reply detected. Sending fixed text message.");
+        // specialRepliesMapにはユーザー名を含まないため、そのまま送信
         await client.replyMessage(replyToken, { type: "text", text: specialReply });
         await Message.create({
             userId: userId,
