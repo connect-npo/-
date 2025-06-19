@@ -1,133 +1,11 @@
-// --- dotenvを読み込んで環境変数を安全に管理 ---
-require('dotenv').config();
-
-// --- 必要なモジュールのインポート ---
-const express = require('express');
-const axios = require('axios');
-const { Client } = require('@line/bot-sdk');
-const { MongoClient, ServerApiVersion } = require("mongodb");
-const cron = require('node-cron');
-
-// Google Generative AI SDKのインポート
-const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai');
-
-const app = express();
-app.use(express.json());
-
-const config = {
-    channelAccessToken: process.env.YOUR_CHANNEL_ACCESS_TOKEN,
-    channelSecret: process.env.YOUR_CHANNEL_SECRET,
+// 会員種別ごとのメッセージ上限とAIモデル定義
+const MEMBERSHIP_CONFIG = {
+    "guest": { maxMessages: 5, model: "gemini-1.5-flash", systemInstructionModifier: "default", exceedLimitMessage: "ごめんなさい、今月の会話回数の上限に達してしまったみたい💦\nまた来月になったらお話しできるから、それまで待っててくれると嬉しいな💖" },
+    "free": { maxMessages: 20, model: "gemini-1.5-flash", systemInstructionModifier: "children", exceedLimitMessage: "ごめんなさい、今月の会話回数の上限に達してしまったみたい💦\nまた来月になったらお話しできるから、それまで待っててくれると嬉しいな💖" },
+    "donor": { maxMessages: Infinity, model: "gemini-1.5-flash", systemInstructionModifier: "enhanced", exceedLimitMessage: "" }, // 寄付会員は制限なし
+    "subscriber": { maxMessages: 20, model: "gemini-1.5-pro", fallbackModel: "gemini-1.5-flash", fallbackModifier: "enhanced", systemInstructionModifier: "default", exceedLimitMessage: "ごめんなさい、今月のProモデルでの会話回数の上限に達してしまったみたい💦\nこれからは通常の会話モード（Gemini Flash）で対応するね！🌸" },
+    "admin": { maxMessages: Infinity, model: "gemini-1.5-pro", systemInstructionModifier: "default", exceedLimitMessage: "" } // 管理者は制限なし
 };
-
-const client = new Client(config);
-
-const GEMINI_API_KEY = process.env.YOUR_GEMINI_API_KEY;
-const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
-const OWNER_USER_ID = process.env.OWNER_USER_ID;
-const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? process.env.BOT_ADMIN_IDS.split(',') : [];
-
-if (OWNER_USER_ID && !BOT_ADMIN_IDS.includes(OWNER_USER_ID)) {
-    BOT_ADMIN_IDS.push(OWNER_USER_ID);
-}
-
-// --- MongoDB設定 ---
-const MONGODB_URI = process.env.MONGODB_URI;
-let mongoClient;
-let dbInstance = null;
-
-async function connectToMongoDB(retries = 5) {
-    if (dbInstance) {
-        return dbInstance;
-    }
-
-    for (let i = 0; i < retries; i++) {
-        try {
-            mongoClient = new MongoClient(MONGODB_URI, {
-                serverApi: {
-                    version: ServerApiVersion.v1,
-                    strict: true,
-                    deprecationErrors: true,
-                }
-            });
-            await mongoClient.connect();
-            console.log("✅ MongoDBに接続しました！");
-            dbInstance = mongoClient.db("connect-npo");
-            return dbInstance;
-        } catch (err) {
-            console.error(`❌ MongoDB接続失敗（${i + 1}/${retries}回目）`, err);
-            await new Promise(res => setTimeout(res, 2000));
-        }
-    }
-    console.error("❌ MongoDBへの接続に複数回失敗しました。アプリケーションを終了します。");
-    process.exit(1);
-}
-
-// Google Generative AIのインスタンス化
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-
-// 安全性設定を定義
-const safetySettings = [
-    {
-        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-        threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-    },
-    {
-        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    },
-    {
-        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    },
-    {
-        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    },
-];
-
-const dangerWords = [
-    "しにたい", "死にたい", "自殺", "消えたい", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
-    "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり"
-];
-
-const highConfidenceScamWords = [
-    "アマゾン", "amazon", "架空請求", "詐欺", "振込", "還付金", "カード利用確認", "利用停止",
-    "未納", "請求書", "コンビニ", "電子マネー", "支払い番号", "支払期限",
-    "息子拘留", "保釈金", "拘留", "逮捕", "電話番号お知らせください",
-    "自宅に取り", "自宅に伺い", "自宅訪問", "自宅に現金", "自宅を教え",
-    "現金書留", "コンビニ払い", "ギフトカード", "プリペイドカード", "未払い", "支払って", "振込先",
-    "名義変更", "口座凍結", "個人情報", "暗証番号", "ワンクリック詐欺", "フィッシング", "当選しました",
-    "高額報酬", "副業", "儲かる", "簡単に稼げる", "投資", "必ず儲かる", "未公開株",
-    "サポート詐欺", "ウイルス感染", "パソコンが危険", "修理費", "遠隔操作", "セキュリティ警告",
-    "役所", "市役所", "年金", "健康保険", "給付金", "還付金", "税金", "税務署", "国民健康保険",
-    "弁護士", "警察", "緊急", "トラブル", "解決", "至急", "すぐに", "今すぐ", "連絡ください", "電話ください", "訪問します"
-];
-
-const contextualScamPhrases = [
-    "lineで送金", "lineアカウント凍結", "lineアカウント乗っ取り", "line不正利用", "lineから連絡", "line詐欺",
-    "snsで稼ぐ", "sns投資", "sns副業",
-    "urlをクリック", "クリックしてください", "通知からアクセス", "メールに添付", "個人情報要求", "認証コード",
-    "電話番号を教えて", "lineのidを教えて", "パスワードを教えて"
-];
-
-const inappropriateWords = [
-    "パンツ", "下着", "エッチ", "胸", "乳", "裸", "スリーサイズ", "性的", "いやらしい", "精液", "性行為", "セックス",
-    "ショーツ", "ぱんつ", "パンティー", "パンティ", "ぱふぱふ", "おぱんつ", "ぶっかけ", "射精", "勃起", "たってる", "全裸", "母乳", "おっぱい", "ブラ", "ブラジャー",
-    "ストッキング", "生む", "産む", "子を産む", "子供を産む", "妊娠", "子宮", "性器", "局部", "ちんちん", "おちんちん", "おてぃんてぃん", "まんこ", "おまんこ", "クリトリス",
-    "ペニス", "ヴァギナ", "オ○ンコ", "オ○ンティン", "イク", "イく", "イクイク", "挿入", "射", "出る", "出そう", "かけた", "掛けていい", "かける", "濡れる", "濡れた",
-    "中出し", "ゴム", "オナニー", "自慰", "快感", "気持ちいい", "絶頂", "絶頂感", "パイズリ", "フェラ", "クンニ", "ソープ", "風俗", "援助交際", "パパ活", "ママ活",
-    "おしべとめしべ", "くっつける", "くっついた", "挿す", "入れろ", "入れた", "穴", "股", "股間", "局部", "プライベートなこと", "秘め事", "秘密",
-    "舐める", "咥える", "口", "くち", "竿", "玉", "袋", "アナル", "ケツ", "お尻", "尻", "おっぱい", "性欲", "興奮", "刺激", "欲情", "発情", "絶倫", "変態", "淫ら", "売春",
-    "快楽", "性的嗜好", "オーラル", "フェラチオ", "クンニリングス", "アナルセックス", "セックスフレンド", "肉体関係", "交尾", "交接", "性交渉", "セックス依存症",
-    "露出", "裸体", "乳房", "陰部", "局部", "性器", "ペニス", "クリトリス", "女性器", "男性器", "おしっこ", "うんち", "精液", "膣", "肛門", "陰毛", "体毛", "裸体画", "ヌード",
-    "ポルノ", "アダルトビデオ", "AV", "エロ", "ムラムラ", "興奮する", "勃つ", "濡れる", "射精する", "射精", "中出し", "外出し", "挿れる", "揉む", "撫でる", "触る",
-    "キス", "ディープキス", "セックスする", "抱く", "抱きしめる", "愛撫", "弄ぶ", "性的な遊び", "変な", "変なこと", "いやらしいこと", "ふしだら", "破廉恥", "淫行",
-    "立ってきちゃった", "むくむくしてる", "おっきいでしょう", "見てみて", "中身を着てない", "服を着てない", "着てないのだよ", "でちゃいそう", "うっ　出る", "いっぱいでちゃった",
-    "気持ちよかった", "またみててくれればいいよ", "むくむくさせちゃうからね", "てぃむてぃむ　たっちして", "また出そう", "いつもなんだ　えろいね～", "また気持ちよくなろうね",
-    "かけていい？", "かけちゃった", "かけちゃう", "せいしまみれ", "子生んでくれない？", "おしべとめしべ　くっつける", "俺とこころちゃんでもできる", "もうむりだよｗ", "今さらなにをｗ",
-    "きもちよくなっていいかな", "挟んでほしい", "挟んで気持ちよくして", "しっかりはさんで気持ちよくして", "かかっちゃった", "よくかかっちゃう", "挟んでいかせて", "ぴょんぴょんされて", "ぴょんぴょん跳んであげる", "ぴょんぴょんしてくれる", "またぴょんぴょんしてくれる", "はさんでもらっていいかな", "また挟んでくれる",
-    "おいたん", "子猫ちゃん", "お兄ちゃん", "お姉ちゃん"
-];
 
 // 修正: 正規表現も考慮したSpecialRepliesMap
 const specialRepliesMap = new Map([
@@ -164,188 +42,14 @@ const specialRepliesMap = new Map([
     // AIの知識に関する質問
     [/好きなアニメ(は|なに)？?/i, "好きなアニメは『ヴァイオレット・エヴァーガーデン』だよ。感動するお話なんだ💖"],
     [/好きなアーティスト(は|なに)？?/i, "好きなアーティストは『ClariS』だよ。元気が出る音楽がたくさんあるんだ🌸"],
-    [/日本語がおかしい/i, "わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖"]
+    [/日本語がおかしい/i, "わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖"],
+
+    // 見守りに関する応答を追加
+    [/見守り/i, "watch_service_guide_flex_trigger"] // ここで特別なトリガー文字列を返すようにする
 ]);
 
 // 宿題トリガーの強化
 const homeworkTriggers = ["宿題", "勉強", "問題", "テスト", "方程式", "算数", "数学", "答え", "解き方", "教えて", "計算", "証明", "公式", "入試", "受験"];
-
-
-const emergencyFlex = {
-    type: "flex",
-    altText: "緊急連絡先一覧",
-    contents: {
-        type: "bubble",
-        body: {
-            type: "box",
-            layout: "vertical",
-            spacing: "md",
-            contents: [
-                { type: "text", text: "⚠️ 緊急時はこちらに連絡してね", weight: "bold", size: "md", color: "#D70040" },
-                { type: "button", style: "primary", color: "#FFA07A", action: { type: "uri", label: "チャイルドライン (16時〜21時)", uri: "tel:0120997777" } },
-                { type: "button", style: "primary", color: "#FF7F50", action: { type: "uri", label: "いのちの電話 (10時〜22時)", uri: "tel:0120783556" } },
-                { type: "button", style: "primary", color: "#20B2AA", action: { type: "uri", label: "東京都こころ相談 (24時間)", uri: "tel:0570087478" } },
-                { type: "button", style: "primary", color: "#9370DB", action: { type: "uri", label: "よりそいチャット (8時〜22時半)", uri: "https://yorisoi-chat.jp" } },
-                { type: "button", style: "primary", color: "#1E90FF", action: { type: "uri", label: "警察 110 (24時間)", uri: "tel:110" } },
-                { type: "button", style: "primary", color: "#FF4500", action: { type: "uri", label: "消防・救急車 119 (24時間)", uri: "tel:119" } },
-                { type: "button", style: "primary", color: "#DA70D6", action: { type: "uri", label: "理事長に電話", uri: "tel:09048393313" } }
-            ]
-        }
-    }
-};
-
-const scamFlex = {
-    type: "flex",
-    altText: "⚠️ 詐欺の可能性があります",
-    contents: {
-        type: "bubble",
-        body: {
-            type: "box",
-            layout: "vertical",
-            spacing: "md",
-            contents: [
-                { type: "text", text: "⚠️ 詐欺の可能性がある内容です", weight: "bold", size: "md", color: "#D70040" },
-                { type: "button", style: "primary", color: "#1E90FF", action: { type: "uri", label: "警察 110 (24時間)", uri: "tel:110" } },
-                { type: "button", style: "primary", color: "#4CAF50", action: { type: "uri", label: "多摩市消費生活センター (月-金 9:30-16:00 ※昼休有)", uri: "tel:0423712882" } },
-                { type: "button", style: "primary", color: "#FFC107", action: { type: "uri", label: "多摩市防災安全課 防犯担当 (月-金 8:30-17:15)", uri: "tel:0423386841" } },
-                { type: "button", style: "primary", color: "#DA70D6", action: { type: "uri", label: "理事長に電話", uri: "tel:09048393313" } }
-            ]
-        }
-    }
-};
-
-const watchServiceGuideFlex = {
-    type: 'flex',
-    altText: 'こころちゃんから見守りサービスのご案内🌸',
-    contents: {
-        type: 'bubble',
-        body: {
-            type: 'box',
-            layout: 'vertical',
-            contents: [
-                { type: 'text', text: '🌸見守りサービス🌸', weight: 'bold', size: 'lg' },
-                { type: 'text', text: '3日に1回こころちゃんが「元気かな？」って聞くね！💖', wrap: true, size: 'sm', margin: 'md' },
-                { type: 'text', text: '「OKだよ」などのボタンを押すだけで、見守り完了だよ😊', wrap: true, size: 'sm' }
-            ]
-        },
-        footer: {
-            type: 'box',
-            layout: 'horizontal',
-            spacing: 'md',
-            contents: [
-                {
-                    type: 'button',
-                    action: {
-                        type: 'postback',
-                        label: '見守り登録する',
-                        data: 'action=watch_register'
-                    },
-                    style: 'primary',
-                    color: '#FFB6C1'
-                },
-                {
-                    type: 'button',
-                    action: {
-                        type: 'postback',
-                        label: '見守り解除する',
-                        data: 'action=watch_unregister'
-                    },
-                    style: 'secondary',
-                    color: '#ADD8E6'
-                }
-            ]
-        }
-    }
-};
-
-// IDがユーザーID（Uで始まる）かどうかを判定する関数
-function isUserId(id) {
-    return id && id.startsWith("U");
-}
-
-function containsDangerWords(text) {
-    return dangerWords.some(word => text.includes(word));
-}
-
-function isBotAdmin(userId) {
-    return BOT_ADMIN_IDS.includes(userId);
-}
-
-function containsScamWords(text) {
-    const lowerText = text.toLowerCase();
-    for (const word of highConfidenceScamWords) {
-        if (lowerText.includes(word.toLowerCase())) {
-            return true;
-        }
-    }
-    return false;
-}
-
-// 不適切ワードが含まれるかをチェックする関数
-function containsInappropriateWords(text) {
-    const lowerText = text.toLowerCase();
-    return inappropriateWords.some(word => lowerText.includes(word));
-}
-
-// ログを保存すべきか判定する関数 (危険ログの判定も含む)
-function shouldLogMessage(text) {
-    return containsDangerWords(text) || containsScamWords(text) || containsInappropriateWords(text);
-}
-
-/**
- * ユーザーのメッセージがNPO法人コネクトや団体に関する問い合わせであるかを判定します。
- * @param {string} text ユーザーからのメッセージ
- * @returns {boolean} 組織に関する問い合わせであればtrue、そうでなければfalse
- */
-const isOrganizationInquiry = (text) => {
-    const lower = text.toLowerCase();
-    return (lower.includes("コネクト") || lower.includes("connect")) &&
-        (lower.includes("団体") || lower.includes("npo") || lower.includes("活動") || lower.includes("どんな"));
-};
-
-function checkSpecialReply(text) {
-    const lowerText = text.toLowerCase();
-    for (const [key, value] of specialRepliesMap) {
-        if (key instanceof RegExp) {
-            if (key.test(lowerText)) {
-                return value;
-            }
-        } else {
-            if (lowerText.includes(key.toLowerCase())) {
-                return value;
-            }
-        }
-    }
-    return null;
-}
-
-function containsHomeworkTrigger(text) {
-    const lowerText = text.toLowerCase();
-    return homeworkTriggers.some(word => lowerText.includes(word));
-}
-
-
-async function getUserDisplayName(userId) {
-    try {
-        const profile = await client.getProfile(userId);
-        return profile.displayName || "利用者";
-    } catch (error) {
-        console.warn("表示名取得に失敗:", error.message);
-        return "利用者";
-    }
-}
-
-// --- ここから大きく変更します ---
-
-// 会員種別ごとのメッセージ上限とAIモデル定義
-const MEMBERSHIP_CONFIG = {
-    "guest": { maxMessages: 5, model: "gemini-1.5-flash" },
-    "free": { maxMessages: 20, model: "gemini-1.5-flash", systemInstructionModifier: "children" }, // 子供向け調整
-    "donor": { maxMessages: Infinity, model: "gemini-1.5-flash", systemInstructionModifier: "enhanced" }, // 強化版Flash
-    "subscriber": { maxMessages: 20, model: "gemini-1.5-pro", fallbackModel: "gemini-1.5-flash", fallbackModifier: "enhanced" }, // Pro、超過後は強化版Flash
-    "admin": { maxMessages: Infinity, model: "gemini-1.5-pro" }
-};
-
 async function generateReply(userId, userMessage) {
     const usersCollection = dbInstance.collection("users");
     let user = await usersCollection.findOne({ userId });
@@ -386,21 +90,19 @@ async function generateReply(userId, userMessage) {
     let modelName = userMembershipConfig.model;
     let currentMessageCount = user.messageCount;
     let maxMessages = userMembershipConfig.maxMessages;
+    let exceedLimitMessage = userMembershipConfig.exceedLimitMessage;
 
     // サブスク会員で、Proモデルの回数制限を超えている場合のフォールバックロジック
     if (user.membershipType === "subscriber" && currentMessageCount >= maxMessages) {
         modelName = userMembershipConfig.fallbackModel; // Flashに切り替え
-        // フォールバック時のシステムインストラクションを調整
-        if (userMembershipConfig.fallbackModifier === "enhanced") {
-            userMembershipConfig.systemInstructionModifier = "enhanced"; // 強化版Flashの指示を適用
-        }
-    } else if (currentMessageCount >= maxMessages && maxMessages !== Infinity) {
+        exceedLimitMessage = userMembershipConfig.exceedLimitMessage; // サブスク用の超過メッセージ
+    } else if (maxMessages !== Infinity && currentMessageCount >= maxMessages) {
         // guest, free会員で回数制限を超過した場合
         await usersCollection.updateOne(
             { userId },
             { $inc: { messageCount: 1 } } // カウントは増やす
         );
-        return `ごめんなさい、今月の会話回数の上限に達してしまったみたい💦\nまた来月になったらお話しできるから、それまで待っててくれると嬉しいな💖`;
+        return exceedLimitMessage;
     }
 
     // メッセージカウントをインクリメント（応答が生成される場合のみ）
@@ -546,7 +248,7 @@ async function generateReply(userId, userMessage) {
             let text = result.response.candidates[0].content.parts[0].text;
 
             // 長文制限の実施（無料会員・子ども向け）
-            if (user.membershipType === "free") {
+            if (userMembershipConfig.systemInstructionModifier === "children") { // free会員向け
                 const maxLength = 200; // 無料会員向けの最大文字数
                 if (text.length > maxLength) {
                     text = text.substring(0, maxLength) + "…🌸";
@@ -608,7 +310,6 @@ const watchMessages = [
     "やっほー！ こころだよ🌸 頑張り屋さんだね！",
     "元気かな？💖 こころちゃんは、いつでもあなたの味方だよ！"
 ];
-
 // --- LINE Messaging APIからのWebhookイベントハンドラ ---
 app.post('/webhook', async (req, res) => {
     // コンソールに受信したWebhookの全情報を出力
@@ -728,7 +429,11 @@ app.post('/webhook', async (req, res) => {
             // 特殊な返信のチェック（名前、団体、使い方など）
             const specialReply = checkSpecialReply(userMessage);
             if (specialReply) {
-                await client.replyMessage(event.replyToken, { type: 'text', text: specialReply });
+                if (specialReply === "watch_service_guide_flex_trigger") {
+                    await client.replyMessage(event.replyToken, watchServiceGuideFlex);
+                } else {
+                    await client.replyMessage(event.replyToken, { type: 'text', text: specialReply });
+                }
                 return res.status(200).send('Special reply processed');
             }
 
@@ -897,6 +602,23 @@ cron.schedule('0 9 * * *', async () => {
         console.error('❌ 見守りサービス Cron ジョブでDBエラー:', dbError);
     }
 });
+
+// --- 月間メッセージカウントのリセット Cron ジョブ ---
+// 毎月1日午前0時に実行
+cron.schedule('0 0 1 * *', async () => {
+    console.log('⏰ 月間メッセージカウントリセット Cron ジョブ実行中...');
+    try {
+        const usersCollection = dbInstance.collection("users");
+        const result = await usersCollection.updateMany(
+            {}, // 全てのユーザー
+            { $set: { messageCount: 0, lastMessageMonth: new Date().getMonth() } }
+        );
+        console.log(`✅ 月間メッセージカウントリセット Cron ジョブ完了。更新件数: ${result.modifiedCount}`);
+    } catch (error) {
+        console.error('❌ 月間メッセージカウントリセット Cron ジョブでエラー:', error);
+    }
+});
+
 
 // --- ヘルスチェックエンドポイント ---
 app.get('/callback', (req, res) => {
