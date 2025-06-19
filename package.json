@@ -1,28 +1,21 @@
 {
   "name": "kokoro-bot",
   "version": "1.0.0",
-  "description": "こころチャット LINE Bot",
+  "description": "LINE bot for NPO Connect",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
-  "keywords": [
-    "line",
-    "chatbot",
-    "npo",
-    "kokoro"
-  ],
-  "author": "connect-npo.org",
-  "license": "MIT",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "@google/generative-ai": "^0.6.0",
-    "@line/bot-sdk": "^7.5.2",
-    "axios": "^1.7.2",
+    "@google/generative-ai": "0.14.0",  <-- ★ここを「0.14.0」に完全に修正
+    "@line/bot-sdk": "^8.7.0",
     "body-parser": "^1.20.2",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "mongoose": "^8.4.1",
-    "node-schedule": "^2.1.1",
+    "mongodb": "^6.8.0",
     "node-cron": "^3.0.3"
   }
 }
