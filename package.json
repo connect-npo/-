@@ -10,7 +10,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@google/generative-ai": "0.14.0",  <-- ★ここを「0.14.0」に完全に修正
+    "@google/generative-ai": "0.14.0",
     "@line/bot-sdk": "^8.7.0",
     "body-parser": "^1.20.2",
     "dotenv": "^16.4.5",
