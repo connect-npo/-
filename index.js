@@ -7,7 +7,7 @@ require('dotenv').config();
 
 // LINEボットSDKの設定
 const config = {
-    // ★ここを修正しました: Renderの環境変数名に合わせて変更
+    // Renderの環境変数名に合わせて変更済み
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
@@ -67,20 +67,21 @@ const emergencyFlex = {
                     weight: "bold",
                     size: "xl",
                     color: "#FF69B4",
-                    align: "center"
+                    align: "center",
+                    wrap: true // ★追加
                 }
             ]
         },
         hero: {
             type: "image",
-            url: "https://example.com/emergency_image.png", // ★緊急時に適切な画像URLに差し替える
+            url: "https://example.com/emergency_image.png", // ★ダミーURL。適切な画像URLに差し替える
             size: "full",
             aspectRatio: "20:13",
             aspectMode: "cover",
             action: {
                 type: "uri",
-                label: "Action",
-                uri: "https://example.com"
+                label: "詳細を見る", // ★ラベルを追加
+                uri: "https://example.com" // ★ダミーURL
             },
             backgroundColor: "#FFEBEE"
         },
@@ -91,7 +92,7 @@ const emergencyFlex = {
                 {
                     type: "text",
                     text: "困った時は、一人で抱え込まずに、信頼できる大人や専門機関に相談してください。",
-                    wrap: true,
+                    wrap: true, // ★追加
                     margin: "md",
                     size: "md"
                 },
@@ -151,7 +152,7 @@ const emergencyFlex = {
                             height: "sm",
                             action: {
                                 type: "uri",
-                                label: "24時間子供SOSダイヤル (文部科学省)",
+                                label: "24時間子供SOSダイヤル",
                                 uri: "tel:0120078310"
                             }
                         },
@@ -179,7 +180,8 @@ const emergencyFlex = {
                     text: "一人で悩まず、助けを求めてくださいね。",
                     size: "sm",
                     align: "center",
-                    color: "#888888"
+                    color: "#888888",
+                    wrap: true // ★追加
                 }
             ]
         }
@@ -189,7 +191,7 @@ const emergencyFlex = {
 // 詐欺対策 Flex Message (scamFlex)
 const scamFlex = {
     type: "flex",
-    altText: "詐欺かな？と思ったら相談してね", // 40文字以内であることを確認
+    altText: "詐欺かも？と思ったら相談してね", // 40文字以内であることを確認
     contents: {
         type: "bubble",
         header: {
@@ -202,20 +204,21 @@ const scamFlex = {
                     weight: "bold",
                     size: "xl",
                     color: "#FFA07A",
-                    align: "center"
+                    align: "center",
+                    wrap: true // ★追加
                 }
             ]
         },
         hero: {
             type: "image",
-            url: "https://example.com/scam_image.png", // ★詐欺対策に適切な画像URLに差し替える
+            url: "https://example.com/scam_image.png", // ★ダミーURL。適切な画像URLに差し替える
             size: "full",
             aspectRatio: "20:13",
             aspectMode: "cover",
             action: {
                 type: "uri",
-                label: "Action",
-                uri: "https://example.com"
+                label: "詳細を見る", // ★ラベルを追加
+                uri: "https://example.com" // ★ダミーURL
             },
             backgroundColor: "#FFF0F5"
         },
@@ -226,7 +229,7 @@ const scamFlex = {
                 {
                     type: "text",
                     text: "「おかしいな」と感じたら、それは詐欺かもしれません！\nすぐに誰かに相談しましょう。",
-                    wrap: true,
+                    wrap: true, // ★追加
                     margin: "md",
                     size: "md"
                 },
@@ -284,7 +287,8 @@ const scamFlex = {
                     text: "大切なあなたを守るために、少しでも不安を感じたら行動してください。",
                     size: "sm",
                     align: "center",
-                    color: "#888888"
+                    color: "#888888",
+                    wrap: true // ★追加
                 }
             ]
         }
@@ -307,20 +311,21 @@ const watchServiceGuideFlex = {
                     weight: "bold",
                     size: "xl",
                     color: "#6A5ACD",
-                    align: "center"
+                    align: "center",
+                    wrap: true // ★追加
                 }
             ]
         },
         hero: {
             type: "image",
-            url: "https://example.com/watch_service_image.png", // ★見守りサービスに適切な画像URLに差し替える
+            url: "https://example.com/watch_service_image.png", // ★ダミーURL。適切な画像URLに差し替える
             size: "full",
             aspectRatio: "20:13",
             aspectMode: "cover",
             action: {
                 type: "uri",
-                label: "Action",
-                uri: "https://example.com"
+                label: "詳細を見る", // ★ラベルを追加
+                uri: "https://example.com" // ★ダミーURL
             },
             backgroundColor: "#E6E6FA"
         },
@@ -331,7 +336,7 @@ const watchServiceGuideFlex = {
                 {
                     type: "text",
                     text: "こころちゃんの見守りサービスは、定期的にあなたにメッセージを送ることで、あなたの安否確認を行うサービスです。",
-                    wrap: true,
+                    wrap: true, // ★追加
                     margin: "md",
                     size: "md"
                 },
@@ -350,24 +355,25 @@ const watchServiceGuideFlex = {
                             text: "【サービス内容】",
                             weight: "bold",
                             size: "md",
-                            color: "#6A5ACD"
+                            color: "#6A5ACD",
+                            wrap: true // ★追加
                         },
                         {
                             type: "text",
                             text: "・毎日、あなたに「おはよう！」や「元気？」などのメッセージを送信します。",
-                            wrap: true,
+                            wrap: true, // ★追加
                             size: "sm"
                         },
                         {
                             type: "text",
                             text: "・一定期間返信がない場合、リマインダーメッセージを送信します。",
-                            wrap: true,
+                            wrap: true, // ★追加
                             size: "sm"
                         },
                         {
                             type: "text",
                             text: "・さらに返信がない場合、登録された緊急連絡先に自動で通知が送られます。",
-                            wrap: true,
+                            wrap: true, // ★追加
                             size: "sm"
                         },
                         {
@@ -376,18 +382,19 @@ const watchServiceGuideFlex = {
                             weight: "bold",
                             size: "md",
                             color: "#6A5ACD",
-                            margin: "md"
+                            margin: "md",
+                            wrap: true // ★追加
                         },
                         {
                             type: "text",
                             text: "・「見守りサービスを開始」ボタンを押してください。",
-                            wrap: true,
+                            wrap: true, // ★追加
                             size: "sm"
                         },
                         {
                             type: "text",
                             text: "・サービスを停止したい場合は「見守りサービスを停止」と送ってください。",
-                            wrap: true,
+                            wrap: true, // ★追加
                             size: "sm"
                         }
                     ]
@@ -540,7 +547,7 @@ async function handleEvent(event) {
 
     if (isDanger) {
         console.log(`  - Danger word detected! Sending emergencyFlex.`);
-        const dangerReplyText = "危険なワードを感知しました。心配です。すぐに信頼できる大人や専門機関に相談してください。";
+        // ★Flex Messageのみを送信
         try {
             await client.replyMessage(replyToken, [emergencyFlex]); // ✅ これで正しいです (メッセージオブジェクトの配列)
             console.log("✅ Flex Message送信成功（危険ワード）");
@@ -548,15 +555,14 @@ async function handleEvent(event) {
             await Message.create({
                 userId: userId,
                 message: userMessage,
-                replyText: dangerReplyText + '（Flex Message送信）',
+                replyText: emergencyFlex.altText + '（Flex Message送信）', // ログにはaltTextを記録
                 responsedBy: responsedBy,
                 timestamp: new Date(),
             });
             return; // 以降の処理を停止
         } catch (err) {
             console.error("❌ Flex Message送信エラー（危険ワード）:", err.originalError?.response?.data || err.message);
-            // エラー時でもユーザーにテキストで通知
-            // 長すぎる可能性があるため、簡潔なメッセージにする
+            // エラー時でもユーザーにテキストで通知 (短くする)
             const fallbackText = "ごめんなさい、メッセージを送信できませんでした。緊急時は110番や9110番に連絡してください。";
             await client.replyMessage(replyToken, [{ type: 'text', text: fallbackText }])
                 .catch(err => console.error("❌ Fallbackテキスト送信エラー:", err.message));
@@ -574,7 +580,7 @@ async function handleEvent(event) {
 
     if (isScam) {
         console.log(`  - Scam word detected! Sending scamFlex.`);
-        const scamReplyText = "詐欺の可能性を感じたら、一人で悩まずに相談してくださいね。";
+        // ★Flex Messageのみを送信
         try {
             await client.replyMessage(replyToken, [scamFlex]); // ✅ これで正しいです (メッセージオブジェクトの配列)
             console.log("✅ Flex Message送信成功（詐欺ワード）");
@@ -582,14 +588,14 @@ async function handleEvent(event) {
             await Message.create({
                 userId: userId,
                 message: userMessage,
-                replyText: scamReplyText + '（Flex Message送信）',
+                replyText: scamFlex.altText + '（Flex Message送信）', // ログにはaltTextを記録
                 responsedBy: responsedBy,
                 timestamp: new Date(),
             });
             return; // 以降の処理を停止
         } catch (err) {
             console.error("❌ Flex Message送信エラー（詐欺ワード）:", err.originalError?.response?.data || err.message);
-            // エラー時でもユーザーにテキストで通知
+            // エラー時でもユーザーにテキストで通知 (短くする)
             const fallbackText = "ごめんなさい、メッセージを送信できませんでした。詐欺かなと思ったら警察相談専用電話#9110へ連絡してください。";
             await client.replyMessage(replyToken, [{ type: 'text', text: fallbackText }])
                 .catch(err => console.error("❌ Fallbackテキスト送信エラー:", err.message));
@@ -607,7 +613,7 @@ async function handleEvent(event) {
 
     if (isWatchServiceQuery) {
         console.log(`  - Watch service query detected! Sending watchServiceGuideFlex.`);
-        const guideReplyText = "見守りサービスについてご案内します。";
+        // ★Flex Messageのみを送信
         try {
             await client.replyMessage(replyToken, [watchServiceGuideFlex]); // ✅ これで正しいです (メッセージオブジェクトの配列)
             console.log("✅ Flex Message送信成功（見守りサービス案内）");
@@ -615,14 +621,14 @@ async function handleEvent(event) {
             await Message.create({
                 userId: userId,
                 message: userMessage,
-                replyText: guideReplyText + '（Flex Message送信）',
+                replyText: watchServiceGuideFlex.altText + '（Flex Message送信）', // ログにはaltTextを記録
                 responsedBy: responsedBy,
                 timestamp: new Date(),
             });
             return; // 以降の処理を停止
         } catch (err) {
             console.error("❌ Flex Message送信エラー（見守りサービス案内）:", err.originalError?.response?.data || err.message);
-            // エラー時でもユーザーにテキストで通知
+            // エラー時でもユーザーにテキストで通知 (短くする)
             const fallbackText = "ごめんなさい、見守りサービスのご案内を送信できませんでした。「見守りサービスを開始」と入力すると開始できます。";
             await client.replyMessage(replyToken, [{ type: 'text', text: fallbackText }])
                 .catch(err => console.error("❌ Fallbackテキスト送信エラー:", err.message));
@@ -688,7 +694,7 @@ async function handleEvent(event) {
     }
 }
 
-// --- 定期実行ジョブ ---
+// --- 定期実行ジョブの関数定義 ---
 
 // 定期見守りメッセージ送信関数
 async function sendScheduledWatchMessage() {
@@ -774,7 +780,6 @@ async function escalateEmergency() {
     console.log('--- Cron job: 緊急エスカレーション ---');
     const users = await UserStatus.find({ status: 'watch_pending_reply' });
     const now = new Date();
-    const SEVENTY_TWO_HOURS = 72 * 60 * 60 * 1000; // 72時間（ミリ秒）
     const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000; // 前のリマインダーからの時間計算に必要
 
     for (const user of users) {
@@ -811,9 +816,11 @@ async function escalateEmergency() {
     }
 }
 
-// 定期実行ジョブのスケジューリング
+
+// --- 定期実行ジョブのスケジューリング ---
+// ★RangeError対策のため、関数を無名関数でラップして渡します
 // 毎日午後3時（日本時間）に見守りメッセージを送信
-schedule.scheduleJob('0 15 * * *', async function() { // async function() に変更
+schedule.scheduleJob('0 15 * * *', async () => {
     console.log('--- Cron job: 定期見守りメッセージ送信が実行されました ---');
     await sendScheduledWatchMessage();
 }, {
@@ -821,7 +828,7 @@ schedule.scheduleJob('0 15 * * *', async function() { // async function() に変
 });
 
 // 毎日午前9時と午後9時（日本時間）にリマインダーメッセージを送信
-schedule.scheduleJob('0 9,21 * * *', async function() { // async function() に変更
+schedule.scheduleJob('0 9,21 * * *', async () => {
     console.log('--- Cron job: リマインダーメッセージ送信が実行されました ---');
     await sendReminderMessages();
 }, {
@@ -829,7 +836,7 @@ schedule.scheduleJob('0 9,21 * * *', async function() { // async function() に�
 });
 
 // 毎日午前0時（日本時間）に緊急エスカレーションを確認
-schedule.scheduleJob('0 0 * * *', async function() { // async function() に変更
+schedule.scheduleJob('0 0 * * *', async () => {
     console.log('--- Cron job: 緊急エスカレーション確認が実行されました ---');
     await escalateEmergency();
 }, {
