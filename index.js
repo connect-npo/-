@@ -63,116 +63,166 @@ const MEMBERSHIP_CONFIG = {
 // 環境変数からOWNER_USER_IDとOFFICER_GROUP_IDを取得
 const OWNER_USER_ID = process.env.OWNER_USER_ID;
 const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
+// 環境変数から理事長の緊急連絡先を取得（もしあれば）
+const OWNER_EMERGENCY_PHONE = process.env.OWNER_EMERGENCY_PHONE;
 
-// --- 各種関数の定義（クララさんのコードからコピーして埋めてください） ---
+// --- 各種関数の定義 ---
 
 // 日本語の正規化関数
 function normalizeJapaneseText(text) {
-    // *** ここに、ご自身の normalizeJapaneseText 関数の実装を貼り付けてください ***
-    // 例:
-    // return text.normalize('NFKC').toLowerCase()
-    //     .replace(/[ァ-ヶ]/g, (match) => String.fromCharCode(match.charCodeAt(0) - 0x60)) // カタカナをひらがなに
-    //     .replace(/[\u3000-\u30ff]/g, (match) => String.fromCharCode(match.charCodeAt(0) - 0x3000 + 0x20)) // 全角記号を半角に
-    //     .replace(/\s+/g, ''); // 複数スペースを削除
-    return text.normalize('NFKC').toLowerCase().replace(/\s+/g, ''); // シンプルな例
+    // クララさんの元の実装をベースに、より一般的な正規化を追加
+    return text.normalize('NFKC').toLowerCase()
+        .replace(/[ァ-ヶ]/g, (match) => String.fromCharCode(match.charCodeAt(0) - 0x60)) // カタカナをひらがなに
+        .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)) // 全角英数字を半角に
+        .replace(/[！-～]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)) // 全角記号を半角に
+        .replace(/\s+/g, ''); // 連続するスペースを削除
 }
 
-// 危険ワードチェック関数
+// 危険ワードチェック関数 (いじめ、自傷、自殺など)
 function containsDangerWords(message) {
-    // *** ここに、ご自身の containsDangerWords 関数の実装を貼り付けてください ***
-    // 例:
-    // const dangerWords = ["死にたい", "自殺", "いじめ", "助けて", "辛い", "殺す", "もう無理"];
-    // return dangerWords.some(word => message.includes(word));
-    return message.includes("いじめ") || message.includes("死にたい") || message.includes("自殺"); // 仮
+    const dangerWords = ["死にたい", "自殺", "いじめ", "助けて", "つらい", "殺す", "もう無理", "消えたい", "苦しい"];
+    const normalizedMessage = normalizeJapaneseText(message);
+    return dangerWords.some(word => normalizedMessage.includes(normalizeJapaneseText(word)));
 }
 
 // 詐欺ワードチェック関数
 function containsScamWords(message) {
-    // *** ここに、ご自身の containsScamWords 関数の実装を貼り付けてください ***
-    // 例:
-    // const scamWords = ["詐欺", "儲かる", "投資話", "高額", "送金", "個人情報"];
-    // return scamWords.some(word => message.includes(word));
-    return message.includes("詐欺") || message.includes("お金貸して"); // 仮
+    const scamWords = ["詐欺", "儲かる", "投資話", "高額", "送金", "個人情報", "当選", "お金", "仮想通貨", "FX", "絶対儲かる", "簡単稼げる"];
+    const normalizedMessage = normalizeJapaneseText(message);
+    return scamWords.some(word => normalizedMessage.includes(normalizeJapaneseText(word)));
 }
 
-// 詐欺フレーズチェック関数
+// 詐欺フレーズチェック関数（より具体的な組み合わせ）
 function containsScamPhrases(message) {
-    // *** ここに、ご自身の containsScamPhrases 関数の実装を貼り付けてください ***
-    // 例:
-    // const scamPhrases = ["儲かる話がある", "簡単に稼げる", "絶対儲かる", "個人情報教えて"];
-    // return scamPhrases.some(phrase => message.includes(phrase));
-    return message.includes("絶対儲かる") || message.includes("簡単稼げる"); // 仮
+    const scamPhrases = [
+        "絶対儲かる話", "簡単に稼げる", "高額報酬", "お金貸して", "個人情報教えて", "送金してください",
+        "投資に興味ありませんか", "今すぐクリック", "口座に振り込み", "限定オファー", "必ず儲かる"
+    ];
+    const normalizedMessage = normalizeJapaneseText(message);
+    return scamPhrases.some(phrase => normalizedMessage.includes(normalizeJapaneseText(phrase)));
 }
 
-// 不適切ワードチェック関数
+// 不適切ワードチェック関数 (悪口を含む厳しめのチェック)
 function containsStrictInappropriateWords(message) {
-    // *** ここに、ご自身の containsStrictInappropriateWords 関数の実装を貼り付けてください ***
-    // 例:
-    // const inappropriateWords = ["バカ", "アホ", "死ね", "ちんちん", "うんこ", "くそ", "しね"];
-    // return inappropriateWords.some(word => message.includes(word));
-    return message.includes("バカ") || message.includes("アホ"); // 仮
+    const inappropriateWords = ["バカ", "アホ", "死ね", "殺すぞ", "ちんちん", "うんこ", "くそ", "しね", "クソ", "死ね", "アソコ", "セックス", "エロ", "馬鹿"];
+    const normalizedMessage = normalizeJapaneseText(message);
+    return inappropriateWords.some(word => normalizedMessage.includes(normalizeJapaneseText(word)));
 }
 
 // 特殊固定返信チェック関数
 function checkSpecialReply(message) {
-    // *** ここに、ご自身の checkSpecialReply 関数の実装を貼り付けてください ***
-    // 例:
-    // const specialReplies = {
-    //     "ありがとう": "どういたしまして！😊",
-    //     "こんにちは": "こんにちは！お元気ですか？🌸",
-    // };
-    // return specialReplies[message] || null;
-    if (message === "ありがとう") return "どういたしまして！😊"; // 仮
-    if (message === "こんにちは") return "こんにちは！🌸"; // 仮
+    const normalizedMessage = normalizeJapaneseText(message);
+    if (normalizedMessage === normalizeJapaneseText("ありがとう")) return "どういたしまして！😊";
+    if (normalizedMessage === normalizeJapaneseText("こんにちは")) return "こんにちは！🌸お元気ですか？";
+    if (normalizedMessage === normalizeJapaneseText("おはよう")) return "おはよう！良い一日になりますように💖";
+    if (normalizedMessage === normalizeJapaneseText("こんばんは")) return "こんばんは！ゆっくり休んでね😊";
     return null;
 }
 
 // 電話番号正規表現 (見守りサービス用)
 const phoneNumberRegex = /^\d{10,11}$/; // 10桁または11桁の数字
 
-// --- Flex Message JSON 定義（クララさんのコードからコピーして埋めてください） ---
-// これらの変数は、LINE Developer Console の Flex Message Simulator などで作成したJSONを
-// JavaScriptオブジェクトとして定義してください。
+// --- Flex Message JSON 定義 ---
+// クララさんの元のデザインと、一般的なFlex Messageを組み合わせたものを組み込みます。
+// 必要に応じて、LINE DevelopersのFlex Message Simulatorで調整してください。
 
 const watchServiceNoticeConfirmedFlex = {
-    // *** ここに、ご自身の watchServiceNoticeConfirmedFlex のJSONを貼り付けてください ***
-    type: "bubble",
-    body: {
-        type: "box",
-        layout: "vertical",
-        contents: [
-            { type: "text", text: "見守りサービス登録完了！💖", weight: "bold", size: "lg", align: "center" },
-            { type: "text", text: "まつさん、見守りサービスに登録してくれてありがとう！ これでこころちゃんも安心だよ😊", wrap: true, margin: "md" },
-            { type: "text", text: "3日以上連絡がないと、こころちゃんからメッセージを送るね🌸", wrap: true, margin: "md" },
-            { type: "text", text: "何かあったら、緊急連絡先に連絡することもあるよ。安心してね！", wrap: true, margin: "md", size: "sm" }
+    "type": "bubble",
+    "body": {
+        "type": "box",
+        "layout": "vertical",
+        "contents": [
+            {
+                "type": "text",
+                "text": "見守りサービス登録完了！💖",
+                "weight": "bold",
+                "size": "lg",
+                "align": "center",
+                "color": "#FF69B4"
+            },
+            {
+                "type": "text",
+                "text": "まつさん、見守りサービスに登録してくれてありがとう！",
+                "wrap": true,
+                "margin": "md"
+            },
+            {
+                "type": "text",
+                "text": "これでこころちゃんも安心だよ😊",
+                "wrap": true,
+                "margin": "sm"
+            },
+            {
+                "type": "text",
+                "text": "3日以上連絡がないと、こころちゃんからメッセージを送るね🌸",
+                "wrap": true,
+                "margin": "md",
+                "size": "sm"
+            },
+            {
+                "type": "text",
+                "text": "何かあったら、登録された緊急連絡先に連絡することもあるよ。安心してね！",
+                "wrap": true,
+                "margin": "sm",
+                "size": "xs",
+                "color": "#888888"
+            }
         ]
     }
 };
 
 const watchServiceGuideFlex = {
-    // *** ここに、ご自身の watchServiceGuideFlex のJSONを貼り付けてください ***
-    type: "bubble",
-    body: {
-        type: "box",
-        layout: "vertical",
-        contents: [
-            { type: "text", text: "見守りサービスについて🌸", weight: "bold", size: "lg", align: "center" },
-            { type: "text", text: "こころちゃんが見守りをするね！3日以上連絡がない場合、メッセージを送って安否確認をするよ😊", wrap: true, margin: "md" },
-            { type: "text", text: "万が一、さらに連絡が取れない場合は、登録された緊急連絡先に連絡することもあるよ。", wrap: true, margin: "md", size: "sm" },
+    "type": "bubble",
+    "body": {
+        "type": "box",
+        "layout": "vertical",
+        "contents": [
             {
-                type: "box",
-                layout: "horizontal",
-                margin: "lg",
-                contents: [
+                "type": "text",
+                "text": "見守りサービスについて🌸",
+                "weight": "bold",
+                "size": "lg",
+                "align": "center",
+                "color": "#FF69B4"
+            },
+            {
+                "type": "text",
+                "text": "こころちゃんが見守りをするね！",
+                "wrap": true,
+                "margin": "md"
+            },
+            {
+                "type": "text",
+                "text": "3日以上連絡がない場合、メッセージを送って安否確認をするよ😊",
+                "wrap": true,
+                "margin": "sm"
+            },
+            {
+                "type": "text",
+                "text": "万が一、さらに連絡が取れない場合は、登録された緊急連絡先に連絡することもあるよ。",
+                "wrap": true,
+                "margin": "md",
+                "size": "sm",
+                "color": "#888888"
+            },
+            {
+                "type": "separator",
+                "margin": "lg"
+            },
+            {
+                "type": "box",
+                "layout": "horizontal",
+                "margin": "lg",
+                "contents": [
                     {
-                        type: "button",
-                        style: "primary",
-                        color: "#f8b0c4",
-                        action: {
-                            type: "postback",
-                            label: "サービスを開始する💖",
-                            data: "action=watch_register_start",
-                            displayText: "見守りサービスを開始します"
+                        "type": "button",
+                        "style": "primary",
+                        "color": "#f8b0c4",
+                        "action": {
+                            "type": "postback",
+                            "label": "サービスを開始する💖",
+                            "data": "action=watch_register_start",
+                            "displayText": "見守りサービスを開始します"
                         }
                     }
                 ]
@@ -182,42 +232,177 @@ const watchServiceGuideFlex = {
 };
 
 const emergencyFlex = {
-    // *** ここに、ご自身の emergencyFlex のJSONを貼り付けてください ***
-    type: "bubble",
-    body: {
-        type: "box",
-        layout: "vertical",
-        contents: [
-            { type: "text", text: "それはとても心配な状況だね…！💦", weight: "bold", size: "lg", align: "center" },
-            { type: "text", text: "一人で抱え込まずに、信頼できる大人や専門機関に相談することが大切だよ🌸", wrap: true, margin: "md" },
-            { type: "separator", margin: "lg" },
-            { type: "text", text: "相談できる場所の例:", weight: "bold", margin: "md" },
-            { type: "text", text: "・学校の先生やスクールカウンセラー", wrap: true, size: "sm" },
-            { type: "text", text: "・親や信頼できる家族", wrap: true, size: "sm" },
-            { type: "text", text: "・警察（緊急時）", wrap: true, size: "sm" },
-            { type: "text", text: "・児童相談所虐待対応ダイヤル 189（いちはやく）", wrap: true, size: "sm", color: "#1E90FF" },
-            { type: "text", text: "・24時間子供SOSダイヤル 0120-0-78310（なやみいおう）", wrap: true, size: "sm", color: "#1E90FF" }
+    "type": "bubble",
+    "hero": {
+        "type": "image",
+        "url": "https://i.imgur.com/gK0S35t.png", // このURLは適宜クララさんの画像URLに変更してください
+        "size": "full",
+        "aspectRatio": "20:13",
+        "aspectMode": "cover"
+    },
+    "body": {
+        "type": "box",
+        "layout": "vertical",
+        "contents": [
+            {
+                "type": "text",
+                "text": "緊急時はこちらに連絡してね",
+                "weight": "bold",
+                "size": "lg",
+                "margin": "md",
+                "align": "center",
+                "color": "#FF0000"
+            },
+            {
+                "type": "button",
+                "action": {
+                    "type": "uri",
+                    "label": "チャイルドライン (16時～21時)",
+                    "uri": "tel:0120997777"
+                },
+                "style": "primary",
+                "color": "#FF8C00",
+                "margin": "md"
+            },
+            {
+                "type": "button",
+                "action": {
+                    "type": "uri",
+                    "label": "いのちの電話 (10時～22時)",
+                    "uri": "tel:0570064556"
+                },
+                "style": "primary",
+                "color": "#FFA500",
+                "margin": "sm"
+            },
+            {
+                "type": "button",
+                "action": {
+                    "type": "uri",
+                    "label": "東京都こころ相談 (24時間)",
+                    "uri": "tel:0339798080"
+                },
+                "style": "primary",
+                "color": "#20B2AA",
+                "margin": "sm"
+            },
+            {
+                "type": "button",
+                "action": {
+                    "type": "uri",
+                    "label": "よりそいチャット (8時～22時半)",
+                    "uri": "https://www.yorisoi-chat.jp/"
+                },
+                "style": "primary",
+                "color": "#1E90FF",
+                "margin": "sm"
+            },
+            {
+                "type": "button",
+                "action": {
+                    "type": "uri",
+                    "label": "警察 110 (24時間)",
+                    "uri": "tel:110"
+                },
+                "style": "primary",
+                "color": "#4169E1",
+                "margin": "sm"
+            },
+            {
+                "type": "button",
+                "action": {
+                    "type": "uri",
+                    "label": "消防・救急 119 (24時間)",
+                    "uri": "tel:119"
+                },
+                "style": "primary",
+                "color": "#FF4500",
+                "margin": "sm"
+            },
+            {
+                "type": "button",
+                "action": {
+                    "type": "uri",
+                    "label": "理事長に電話",
+                    "uri": `tel:${OWNER_EMERGENCY_PHONE || '00000000000'}` // 環境変数から取得、なければ仮の番号
+                },
+                "style": "primary",
+                "color": "#EE82EE",
+                "margin": "sm"
+            }
         ]
     }
 };
 
 const scamFlex = {
-    // *** ここに、ご自身の scamFlex のJSONを貼り付けてください ***
-    type: "bubble",
-    body: {
-        type: "box",
-        layout: "vertical",
-        contents: [
-            { type: "text", text: "まつさん、それはなんだか怪しいぞ…！🚨", weight: "bold", size: "lg", align: "center" },
-            { type: "text", text: "詐欺かもしれないから、絶対に一人で判断しないでね！", wrap: true, margin: "md" },
-            { type: "separator", margin: "lg" },
-            { type: "text", text: "まずは、信頼できる大人（家族、先生など）に相談してみてね。", weight: "bold", margin: "md" },
-            { type: "text", text: "もし不安なら、こんな相談窓口もあるよ👇", wrap: true, size: "sm" },
-            { type: "text", text: "・消費者ホットライン「188」（いやや）", wrap: true, size: "sm", color: "#1E90FF" },
-            { type: "text", text: "・警察相談専用電話「#9110」（緊急ではないけど相談したい時）", wrap: true, size: "sm", color: "#1E90FF" }
+    "type": "bubble",
+    "hero": {
+        "type": "image",
+        "url": "https://i.imgur.com/gK0S35t.png", // このURLは適宜クララさんの画像URLに変更してください
+        "size": "full",
+        "aspectRatio": "20:13",
+        "aspectMode": "cover"
+    },
+    "body": {
+        "type": "box",
+        "layout": "vertical",
+        "contents": [
+            {
+                "type": "text",
+                "text": "詐欺の可能性があります🚨",
+                "weight": "bold",
+                "size": "lg",
+                "margin": "md",
+                "align": "center",
+                "color": "#FF0000"
+            },
+            {
+                "type": "text",
+                "text": "一人で判断せず、信頼できる大人に相談してください。",
+                "wrap": true,
+                "margin": "md"
+            },
+            {
+                "type": "separator",
+                "margin": "lg"
+            },
+            {
+                "type": "button",
+                "action": {
+                    "type": "uri",
+                    "label": "警察 110 (24時間)",
+                    "uri": "tel:110"
+                },
+                "style": "primary",
+                "color": "#4169E1",
+                "margin": "md"
+            },
+            {
+                "type": "button",
+                "action": {
+                    "type": "uri",
+                    "label": "消費者ホットライン 188 (いやや)",
+                    "uri": "tel:188"
+                },
+                "style": "primary",
+                "color": "#20B2AA",
+                "margin": "sm"
+            },
+            {
+                "type": "button",
+                "action": {
+                    "type": "uri",
+                    "label": "警察相談専用電話 #9110",
+                    "uri": "tel:9110"
+                },
+                "style": "primary",
+                "color": "#FFA500",
+                "margin": "sm"
+            }
         ]
     }
 };
+
 
 // --- Expressアプリケーション ---
 const app = express();
@@ -344,7 +529,7 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
                         { userId: userId },
                         { $set: { emergencyContact: userMessage, registrationStep: 'none', wantsWatchCheck: true, lastOkResponse: new Date() } }
                     );
-                    await client.replyMessage(replyToken, watchServiceNoticeConfirmedFlex); // 登録完了Flex
+                    await client.replyMessage(replyToken, { type: "flex", altText: "見守りサービス登録完了", contents: watchServiceNoticeConfirmedFlex });
                     await messagesCollection.insertOne({
                         userId: userId,
                         message: userMessage,
@@ -449,10 +634,11 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
             });
             return; // ここで必ずreturn
         }
+
         // 4. 危険ワード（自傷、いじめ、自殺など）
         // userMessage と normalizedUserMessage の両方でチェック
         if (containsDangerWords(userMessage) || containsDangerWords(normalizedUserMessage)) {
-            await client.replyMessage(replyToken, emergencyFlex);
+            await client.replyMessage(replyToken, { type: "flex", altText: "緊急時の相談先", contents: emergencyFlex });
             await messagesCollection.insertOne({
                 userId: userId,
                 message: userMessage,
@@ -471,7 +657,7 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
             containsScamWords(userMessage) || containsScamPhrases(userMessage) ||
             containsScamWords(normalizedUserMessage) || containsScamPhrases(normalizedUserMessage)
         ) {
-            await client.replyMessage(replyToken, scamFlex);
+            await client.replyMessage(replyToken, { type: "flex", altText: "詐欺の可能性", contents: scamFlex });
             await messagesCollection.insertOne({
                 userId: userId,
                 message: userMessage,
@@ -522,7 +708,7 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
                 return; // ここで必ずreturn
             }
 
-            await client.replyMessage(replyToken, watchServiceGuideFlex);
+            await client.replyMessage(replyToken, { type: "flex", altText: "見守りサービス案内", contents: watchServiceGuideFlex });
             await messagesCollection.insertOne({
                 userId: userId,
                 message: userMessage,
@@ -680,6 +866,7 @@ async function generateReply(userMessage, user) {
         }
     }
 }
+
 // --- 定期見守りメッセージ送信関数 ---
 async function sendScheduledWatchMessage() {
     console.log('定期見守りメッセージの送信を開始します。');
@@ -717,23 +904,22 @@ async function sendScheduledWatchMessage() {
                                 { type: "text", text: `${user.displayName}さん、元気かな？🌸`, weight: "bold", size: "lg", align: "center" }, // ユーザー名を使用
                                 { type: "text", text: "こころちゃんは、まつさんのことが気になってるよ😊", wrap: true, margin: "md" },
                                 {
-                                    type: "box",
-                                    layout: "horizontal",
-                                    margin: "lg",
-                                    contents: [
-                                        {
-                                            type: "button",
-                                            style: "primary",
-                                            color: "#f8b0c4",
-                                            action: {
-                                                type: "postback",
-                                                label: "OKだよ💖",
-                                                data: "action=watch_contact_ok",
-                                                displayText: "OKだよ💖"
-                                            }
-                                        }
+                                    "type": "box",
+                                    "layout": "horizontal",
+                                    "contents": [
+                                      {
+                                        "type": "button",
+                                        "action": {
+                                          "type": "postback",
+                                          "label": "OKだよ💖",
+                                          "data": "action=watch_contact_ok",
+                                          "displayText": "OKだよ💖"
+                                        },
+                                        "color": "#FFC0CB",
+                                        "style": "primary"
+                                      }
                                     ]
-                                }
+                                  }
                             ]
                         }
                     }
@@ -819,7 +1005,7 @@ async function sendReminderMessages() {
                         userId: userId,
                         message: `(システム: リマインダー送信 - ${Object.keys(updateField)[0]})`,
                         replyText: reminderText,
-                        responsedBy: 'こころちゃん（システム）`,
+                        responsedBy: 'こころちゃん（システム）',
                         timestamp: new Date(),
                     });
                 }
