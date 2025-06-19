@@ -13,14 +13,14 @@ app.use(bodyParser.json());
 
 // 環境変数 - ここをRenderの設定と完全に一致させる
 const config = {
-    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN, // ★修正点1: LINE_CHANNEL_ACCESS_TOKEN に変更
-    channelSecret: process.env.LINE_CHANNEL_SECRET,           // ★修正点2: LINE_CHANNEL_SECRET に変更
+    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+    channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;          // ★修正点3: GEMINI_API_KEY に変更
-const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;     // ★このままでOK (Renderの画像と一致)
-const OWNER_USER_ID = process.env.OWNER_USER_ID;           // ★このままでOK (Renderの画像と一致)
-const MONGODB_URI = process.env.MONGODB_URI;               // ★このままでOK (Renderの画像と一致)
-const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? process.env.BOT_ADMIN_IDS.split(',') : []; // ★このままでOK (Renderの画像と一致)
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
+const OWNER_USER_ID = process.env.OWNER_USER_ID;
+const MONGODB_URI = process.env.MONGODB_URI;
+const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? process.env.BOT_ADMIN_IDS.split(',') : [];
 
 const client = new Client(config);
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
@@ -337,7 +337,7 @@ async function generateReply(userId, userMessage) {
     let exceedLimitMessage = userMembershipConfig.exceedLimitMessage;
 
     // 管理者ユーザーは回数制限の対象外
-    if (BOT_ADMIN_IDS.includes(userId)) { // OWNER_USER_ID も BOT_ADMIN_IDS に含める形にした方が良いかも
+    if (BOT_ADMIN_IDS.includes(userId)) {
         maxMessages = Infinity;
     }
 
@@ -465,7 +465,7 @@ async function generateReply(userId, userMessage) {
     const model = genAI.getGenerativeModel({
         model: modelName,
         safetySettings: safetySettings,
-        systemInstruction: systemInstruction,
+        // systemInstruction はここで指定しない
     });
 
     try {
@@ -478,9 +478,9 @@ async function generateReply(userId, userMessage) {
         }
 
         const chat = model.startChat({
-            // 既存の履歴があればここに渡す
-            // history: [ ... ],
-            generationConfig: generationConfig
+            history: [], // 既存の履歴があればここに渡す
+            generationConfig: generationConfig,
+            systemInstruction: systemInstruction, // ★ここに移動しました！
         });
 
         const generateContentPromise = chat.sendMessage(userMessage);
