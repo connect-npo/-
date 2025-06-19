@@ -3,7 +3,7 @@
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
-const { Client } = require('@line/bot-sdk'); // ★修正点1: LineClient から Client へ変更
+const { Client } = require('@line/bot-sdk');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { MongoClient } = require('mongodb');
 const cron = require('node-cron'); // cronジョブ用
@@ -11,18 +11,18 @@ const cron = require('node-cron'); // cronジョブ用
 const app = express();
 app.use(bodyParser.json());
 
-// 環境変数
+// 環境変数 - ここをRenderの設定と完全に一致させる
 const config = {
-    channelAccessToken: process.env.YOUR_CHANNEL_ACCESS_TOKEN,
-    channelSecret: process.env.YOUR_CHANNEL_SECRET,
+    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN, // ★修正点1: LINE_CHANNEL_ACCESS_TOKEN に変更
+    channelSecret: process.env.LINE_CHANNEL_SECRET,           // ★修正点2: LINE_CHANNEL_SECRET に変更
 };
-const GEMINI_API_KEY = process.env.YOUR_GEMINI_API_KEY;
-const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID; // 理事長グループID
-const OWNER_USER_ID = process.env.OWNER_USER_ID; // ボットオーナーのユーザーID (任意で設定)
-const MONGODB_URI = process.env.MONGODB_URI; // MongoDBのURI
-const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? process.env.BOT_ADMIN_IDS.split(',') : []; // ボット管理者ID (カンマ区切りで複数指定可能)
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;          // ★修正点3: GEMINI_API_KEY に変更
+const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;     // ★このままでOK (Renderの画像と一致)
+const OWNER_USER_ID = process.env.OWNER_USER_ID;           // ★このままでOK (Renderの画像と一致)
+const MONGODB_URI = process.env.MONGODB_URI;               // ★このままでOK (Renderの画像と一致)
+const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? process.env.BOT_ADMIN_IDS.split(',') : []; // ★このままでOK (Renderの画像と一致)
 
-const client = new Client(config); // ★修正点2: new LineClient から new Client へ変更
+const client = new Client(config);
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 let dbInstance;
@@ -403,7 +403,7 @@ async function generateReply(userId, userMessage) {
 - 宿題の直接的な回答や、試験の答えを教えることはできません。
 - ユーザーの個人情報（名前、住所、電話番号、LINE IDなど）を聞き出すことは禁止です。
 - 自分の年齢（14歳）を伝える際は、子供すぎず、信頼感のあるトーンで。
-- 会話の主導権はユーザーにあり、一方的に話題を変えたり、話を中断させたりしないこと。
+- 会話の主導権はユーザーにあり、一方的に話題を変えたり、話を中断させさせないこと。
 - 政治や宗教に関する話題には、中立的な立場を保ち、個人的な意見を述べないこと。
 - ユーザーに課金を促すような発言は禁止です。
 - 法律や医療に関するアドバイスは提供できません。必要に応じて専門家への相談を促してください。
