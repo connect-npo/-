@@ -6,7 +6,7 @@ require('dotenv').config();
 // --- 各種モジュールのインポート ---
 const express = require('express');
 const { MongoClient, ServerApiVersion } = require('mongodb');
-const { LineClient } = require('@line/bot-sdk');
+const { Client } = require('@line/bot-sdk'); // ★ここを修正しました！ LineClient から Client へ
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const moment = require('moment-timezone'); // 日時計算用
 const schedule = require('node-schedule'); // 定期実行用
@@ -16,7 +16,7 @@ const config = {
     channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
     channelSecret: process.env.CHANNEL_SECRET,
 };
-const client = new LineClient(config);
+const client = new Client(config); // ★ここを修正しました！ LineClient から Client へ
 
 // --- MongoDB接続設定 ---
 const uri = process.env.MONGO_URI;
@@ -985,7 +985,7 @@ async function sendReminderMessages() {
                 }
             } catch (lineError) {
                 console.error(`❌ LINEリマインダー送信エラー（ユーザー: ${userId}）:`, lineError.message);
-                console.error(`❌ LINEリマインダー送信エラー詳細（ユーザー: ${userId}）:`, lineError.stack);
+                console.error(`❌ LINEリमाインダー送信エラー詳細（ユーザー: ${userId}）:`, lineError.stack);
             }
         }
         console.log('リマインダーメッセージの送信が完了しました。');
@@ -996,7 +996,7 @@ async function sendReminderMessages() {
 }
 
 // 定期見守りメッセージ送信 (毎日午前9時)
-schedule.schedule('0 9 * * *', async () => {
+schedule.scheduleJob('0 9 * * *', async () => { // ★ schedule.schedule を schedule.scheduleJob に修正
     console.log('--- Cron job: 定期見守りメッセージ送信 ---');
     await sendScheduledWatchMessage();
 }, {
@@ -1004,7 +1004,7 @@ schedule.schedule('0 9 * * *', async () => {
 });
 
 // リマインダーメッセージ送信 (毎日午前9時と午後9時)
-schedule.schedule('0 9,21 * * *', async () => {
+schedule.scheduleJob('0 9,21 * * *', async () => { // ★ schedule.schedule を schedule.scheduleJob に修正
     console.log('--- Cron job: リマインダーメッセージ送信 ---');
     await sendReminderMessages();
 }, {
