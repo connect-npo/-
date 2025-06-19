@@ -13,8 +13,8 @@ const schedule = require('node-schedule'); // 定期実行用
 
 // --- LINE Bot SDKの設定 ---
 const config = {
-    channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
-    channelSecret: process.env.CHANNEL_SECRET,
+    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN, // 
+    channelSecret: process.env.LINE_CHANNEL_SECRET             // 
 };
 const client = new Client(config); // ★ここを修正しました！ LineClient から Client へ
 
