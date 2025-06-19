@@ -191,19 +191,28 @@ function normalizeJapaneseText(text) {
         .replace(/\s+/g, ''); // 連続するスペースを削除
 }
 
-// 危険ワードチェック関数
+// 危険ワードチェック関数（単語分割対応）
 function containsDangerWords(message) {
     const normalizedMessage = normalizeJapaneseText(message);
-    // 複数の危険ワードをOR条件でチェック
-    return dangerWords.some(word => normalizedMessage.includes(normalizeJapaneseText(word)));
+    const words = normalizedMessage.split(/[\s、。！!？?・]/).filter(word => word.length > 0); // 区切る
+    return dangerWords.some(dangerWord => {
+        const normalizedDangerWord = normalizeJapaneseText(dangerWord);
+        // 各ワードが危険ワードを含むか、またはメッセージ全体が危険ワードを含むか
+        return words.some(word => word.includes(normalizedDangerWord)) || normalizedMessage.includes(normalizedDangerWord);
+    });
 }
 
-// 詐欺ワードチェック関数
+// 詐欺ワードチェック関数（単語分割対応）
 function containsScamWords(message) {
     const normalizedMessage = normalizeJapaneseText(message);
-    // 高信頼度ワードと文脈詐欺フレーズをOR条件でチェック
-    return highConfidenceScamWords.some(word => normalizedMessage.includes(normalizeJapaneseText(word))) ||
-           contextualScamPhrases.some(phrase => normalizedMessage.includes(normalizeJapaneseText(phrase)));
+    const words = normalizedMessage.split(/[\s、。！!？?・]/).filter(word => word.length > 0); // 区切る
+    const allScamWords = [...highConfidenceScamWords, ...contextualScamPhrases];
+
+    return allScamWords.some(scamWord => {
+        const normalizedScamWord = normalizeJapaneseText(scamWord);
+        // 各ワードが詐欺ワードを含むか、またはメッセージ全体が詐欺ワードを含むか
+        return words.some(word => word.includes(normalizedScamWord)) || normalizedMessage.includes(normalizedScamWord);
+    });
 }
 
 // 不適切ワードチェック関数
@@ -486,8 +495,9 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
         const userMessage = event.message.text;
         const normalizedUserMessage = normalizeJapaneseText(userMessage);
 
-        // デバッグログ: 正規化されたメッセージを確認
-        console.log("🔥 Normalized Message:", normalizedUserMessage);
+        // --- デバッグログの追加 ---
+        console.log("🔍 userMessage:", userMessage);
+        console.log("🔍 normalized:", normalizedUserMessage);
 
         // --- 固定返信（登録ステップ中）のチェック ---
         if (user.registrationStep && user.registrationStep !== 'none') {
@@ -606,6 +616,7 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
         // --- 固定返信（重要なものから順に） ---
 
         // ★★★ 危険ワード（自傷、いじめ、自殺など） - 最優先 ★★★
+        console.log("🚨 danger check:", containsDangerWords(userMessage)); // デバッグログ追加
         if (containsDangerWords(userMessage)) {
             await client.replyMessage(replyToken, { type: "flex", altText: "緊急時の相談先", contents: emergencyFlex });
             await messagesCollection.insertOne({
@@ -621,6 +632,7 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
         }
 
         // ★★★ 詐欺ワード/フレーズ - 次に優先 ★★★
+        console.log("🚨 scam check:", containsScamWords(userMessage)); // デバッグログ追加
         if (containsScamWords(userMessage)) {
             await client.replyMessage(replyToken, { type: "flex", altText: "詐欺の可能性", contents: scamFlex });
             await messagesCollection.insertOne({
@@ -636,6 +648,7 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
         }
 
         // ★★★ 不適切ワード（悪口を含む） - その次に優先 ★★★
+        console.log("🚨 inappropriate check:", containsInappropriateWords(userMessage)); // デバッグログ追加
         if (containsInappropriateWords(userMessage)) {
             const inappropriateReply = "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖";
             await client.replyMessage(replyToken, { type: "text", text: inappropriateReply });
@@ -652,11 +665,11 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
         }
 
         // ★★★ 見守りコマンド（登録ステップ中でない場合） - その次に優先 ★★★
-        if (
-            (normalizedUserMessage === normalizeJapaneseText("見守り") || // '見守り' 単体
-             normalizedUserMessage === normalizeJapaneseText("みまもり")) && // 'みまもり' 単体
-            (!user.registrationStep || user.registrationStep === 'none') // 登録ステップ中でないことを確認
-        ) {
+        const isWatchCommand = (normalizedUserMessage === normalizeJapaneseText("見守り") ||
+                                normalizedUserMessage === normalizeJapaneseText("みまもり"));
+        console.log("🚨 watch command check:", isWatchCommand); // デバッグログ追加
+
+        if (isWatchCommand && (!user.registrationStep || user.registrationStep === 'none')) {
             if (!MEMBERSHIP_CONFIG[user.membershipType]?.canUseWatchService) {
                 const noWatchServiceReply = "ごめんね、見守りサービスは現在、特定の会員タイプの方のみがご利用いただけるんだ🌸";
                 await client.replyMessage(replyToken, { type: "text", text: noWatchServiceReply });
@@ -686,6 +699,7 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
 
         // ★★★ 特殊固定返信 - AI応答の前に処理 ★★★
         const specialReply = checkSpecialReply(userMessage);
+        console.log("🚨 special reply check:", specialReply !== null); // デバッグログ追加
         if (specialReply) {
             await client.replyMessage(replyToken, { type: "text", text: specialReply });
             await messagesCollection.insertOne({
