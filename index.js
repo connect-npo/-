@@ -13,8 +13,8 @@ const schedule = require('node-schedule'); // 定期実行用
 
 // --- LINE Bot SDKの設定 ---
 const config = {
-    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN, // Renderの環境変数名に合わせる
-    channelSecret: process.env.LINE_CHANNEL_SECRET,             // Renderの環境変数名に合わせる
+    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+    channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 const client = new Client(config);
 
@@ -174,36 +174,42 @@ function normalizeJapaneseText(text) {
         .replace(/\s+/g, '');
 }
 
-// 危険ワードチェック関数（一時的に includes のみ）
+// 危険ワードの事前変換（アプリ起動時に一度だけ実行）
+const normalizedDangerWords = dangerWords.map(normalizeJapaneseText);
+const normalizedHighConfidenceScamWords = highConfidenceScamWords.map(normalizeJapaneseText);
+const normalizedContextualScamPhrases = contextualScamPhrases.map(normalizeJapaneseText);
+const normalizedAllScamWords = [...normalizedHighConfidenceScamWords, ...normalizedContextualScamPhrases];
+const normalizedInappropriateWords = inappropriateWords.map(normalizeJapaneseText);
+
+// 危険ワードチェック関数
 function containsDangerWords(message) {
     const normalizedMessage = normalizeJapaneseText(message);
     // デバッグログ追加
     console.log("⚠️ Normalized message (danger):", normalizedMessage);
-    dangerWords.forEach(dangerWord => {
-        console.log(`🔎 危険ワード比較: "${normalizeJapaneseText(dangerWord)}" in "${normalizedMessage}" -> ${normalizedMessage.includes(normalizeJapaneseText(dangerWord))}`);
+    normalizedDangerWords.forEach(dangerWord => {
+        console.log(`🔎 危険ワード比較: "${dangerWord}" in "${normalizedMessage}" -> ${normalizedMessage.includes(dangerWord)}`);
     });
-    return dangerWords.some(dangerWord => {
-        return normalizedMessage.includes(normalizeJapaneseText(dangerWord));
+    return normalizedDangerWords.some(dangerWord => {
+        return normalizedMessage.includes(dangerWord);
     });
 }
 
-// 詐欺ワードチェック関数（一時的に includes のみ）
+// 詐欺ワードチェック関数
 function containsScamWords(message) {
     const normalizedMessage = normalizeJapaneseText(message);
-    const allScamWords = [...highConfidenceScamWords, ...contextualScamPhrases];
     // デバッグログ追加
     console.log("⚠️ Normalized message (scam):", normalizedMessage);
-    allScamWords.forEach(scamWord => {
-        console.log(`🔎 詐欺ワード比較: "${normalizeJapaneseText(scamWord)}" in "${normalizedMessage}" -> ${normalizedMessage.includes(normalizeJapaneseText(scamWord))}`);
+    normalizedAllScamWords.forEach(scamWord => {
+        console.log(`🔎 詐欺ワード比較: "${scamWord}" in "${normalizedMessage}" -> ${normalizedMessage.includes(scamWord)}`);
     });
-    return allScamWords.some(scamWord => {
-        return normalizedMessage.includes(normalizeJapaneseText(scamWord));
+    return normalizedAllScamWords.some(scamWord => {
+        return normalizedMessage.includes(scamWord);
     });
 }
 
 function containsInappropriateWords(message) {
     const normalizedMessage = normalizeJapaneseText(message);
-    return inappropriateWords.some(word => normalizedMessage.includes(normalizeJapaneseText(word)));
+    return normalizedInappropriateWords.some(word => normalizedMessage.includes(word));
 }
 
 function checkSpecialReply(message) {
@@ -778,6 +784,7 @@ async function generateReply(userMessage, user) {
         const response = await result.response;
         let text = response.text();
 
+        // Gemini AIからの応答が不適切だった場合の再チェック
         if (!text || containsInappropriateWords(text) || containsDangerWords(text) || containsScamWords(text)) {
             console.warn(`Gemini AIからの応答が不適切または空でした。フォールバック応答を送信します。原文: "${text}"`);
             return "ごめんね、うまく言葉が見つからないみたい💦別のこと聞いてくれると嬉しいな🌸";
