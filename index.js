@@ -175,6 +175,7 @@ function normalizeJapaneseText(text) {
 }
 
 // 危険ワードの事前変換（アプリ起動時に一度だけ実行）
+// 必ず normalizeJapaneseText 関数が定義された後でこれらを定義してください。
 const normalizedDangerWords = dangerWords.map(normalizeJapaneseText);
 const normalizedHighConfidenceScamWords = highConfidenceScamWords.map(normalizeJapaneseText);
 const normalizedContextualScamPhrases = contextualScamPhrases.map(normalizeJapaneseText);
@@ -216,11 +217,11 @@ function checkSpecialReply(message) {
     const normalizedMessage = normalizeJapaneseText(message);
     for (let [key, value] of specialRepliesMap) {
         if (key instanceof RegExp) {
-            if (key.test(message)) {
+            if (key.test(message)) { // 正規表現は元のメッセージに対してテスト
                 return value;
             }
         } else {
-            if (normalizedMessage === normalizeJapaneseText(key)) {
+            if (normalizedMessage === normalizeJapaneseText(key)) { // 文字列は正規化したもの同士で比較
                 return value;
             }
         }
