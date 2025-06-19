@@ -150,7 +150,7 @@ const specialRepliesMap = new Map([
     // 名前に関する応答 (正規表現を優先)
     [/君の名前(なんていうの|は|教えて|なに)？?|名前(なんていうの|は|教えて|なに)？?|お前の名前は/i, "わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖"],
     [/こころじゃないの？/i, "うん、わたしの名前は皆守こころ💖　これからもよろしくね🌸"],
-    [/こころチャットなのにうそつきじゃん/i, "ごめんなさい💦 わたしの名前は皆守こころだよ🌸 誤解させちゃってごめんね💖"],
+    [/こころチャットなのにうそつきじゃん/i, "ごめんね💦 わたしの名前は皆守こころだよ🌸 誤解させちゃってごめんね💖"],
     [/名前も言えないの？/i, "ごめんね、わたしの名前は皆守こころ（みなもりこころ）だよ🌸 こころちゃんって呼んでくれると嬉しいな💖"],
 
     // 団体に関する応答
@@ -194,12 +194,14 @@ function normalizeJapaneseText(text) {
 // 危険ワードチェック関数
 function containsDangerWords(message) {
     const normalizedMessage = normalizeJapaneseText(message);
+    // 複数の危険ワードをOR条件でチェック
     return dangerWords.some(word => normalizedMessage.includes(normalizeJapaneseText(word)));
 }
 
 // 詐欺ワードチェック関数
 function containsScamWords(message) {
     const normalizedMessage = normalizeJapaneseText(message);
+    // 高信頼度ワードと文脈詐欺フレーズをOR条件でチェック
     return highConfidenceScamWords.some(word => normalizedMessage.includes(normalizeJapaneseText(word))) ||
            contextualScamPhrases.some(phrase => normalizedMessage.includes(normalizeJapaneseText(phrase)));
 }
@@ -601,9 +603,10 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
             return; // ここで必ずreturn
         }
 
-        // 4. 危険ワード（自傷、いじめ、自殺など）
-        // userMessage と normalizedUserMessage の両方でチェック
-        if (containsDangerWords(userMessage)) { // normalizedUserMessage は containsDangerWords 関数内で処理
+        // --- 固定返信（重要なものから順に） ---
+
+        // ★★★ 危険ワード（自傷、いじめ、自殺など） - 最優先 ★★★
+        if (containsDangerWords(userMessage)) {
             await client.replyMessage(replyToken, { type: "flex", altText: "緊急時の相談先", contents: emergencyFlex });
             await messagesCollection.insertOne({
                 userId: userId,
@@ -614,12 +617,11 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
                 warningType: 'danger',
                 timestamp: new Date(),
             });
-            return; // ここで必ずreturn
+            return;
         }
 
-        // 5. 詐欺ワード/フレーズ
-        // userMessage と normalizedUserMessage の両方でチェック
-        if (containsScamWords(userMessage)) { // normalizedUserMessage は containsScamWords 関数内で処理
+        // ★★★ 詐欺ワード/フレーズ - 次に優先 ★★★
+        if (containsScamWords(userMessage)) {
             await client.replyMessage(replyToken, { type: "flex", altText: "詐欺の可能性", contents: scamFlex });
             await messagesCollection.insertOne({
                 userId: userId,
@@ -630,11 +632,11 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
                 warningType: 'scam',
                 timestamp: new Date(),
             });
-            return; // ここで必ずreturn
+            return;
         }
 
-        // 6. 不適切ワード（悪口を含む）
-        if (containsInappropriateWords(userMessage)) { // normalizedUserMessage は containsInappropriateWords 関数内で処理
+        // ★★★ 不適切ワード（悪口を含む） - その次に優先 ★★★
+        if (containsInappropriateWords(userMessage)) {
             const inappropriateReply = "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖";
             await client.replyMessage(replyToken, { type: "text", text: inappropriateReply });
             await messagesCollection.insertOne({
@@ -646,13 +648,13 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
                 warningType: 'inappropriate',
                 timestamp: new Date(),
             });
-            return; // ここで必ずreturn
+            return;
         }
 
-        // 7. 見守りコマンド（登録ステップ中でない場合）
+        // ★★★ 見守りコマンド（登録ステップ中でない場合） - その次に優先 ★★★
         if (
-            (normalizedUserMessage.includes(normalizeJapaneseText("見守り")) ||
-            normalizedUserMessage.includes(normalizeJapaneseText("みまもり"))) &&
+            (normalizedUserMessage === normalizeJapaneseText("見守り") || // '見守り' 単体
+             normalizedUserMessage === normalizeJapaneseText("みまもり")) && // 'みまもり' 単体
             (!user.registrationStep || user.registrationStep === 'none') // 登録ステップ中でないことを確認
         ) {
             if (!MEMBERSHIP_CONFIG[user.membershipType]?.canUseWatchService) {
@@ -667,7 +669,7 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
                     warningType: 'watch_service_limit',
                     timestamp: new Date(),
                 });
-                return; // ここで必ずreturn
+                return;
             }
 
             await client.replyMessage(replyToken, { type: "flex", altText: "見守りサービス案内", contents: watchServiceGuideFlex });
@@ -678,11 +680,11 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
                 responsedBy: 'こころちゃん（固定返信：見守り案内）',
                 timestamp: new Date(),
             });
-            return; // ここで必ずreturn
+            return;
         }
 
 
-        // 8. 特殊固定返信
+        // ★★★ 特殊固定返信 - AI応答の前に処理 ★★★
         const specialReply = checkSpecialReply(userMessage);
         if (specialReply) {
             await client.replyMessage(replyToken, { type: "text", text: specialReply });
@@ -693,7 +695,7 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
                 responsedBy: 'こころちゃん（固定返信：特殊）',
                 timestamp: new Date(),
             });
-            return; // ここで必ずreturn
+            return;
         }
 
         // --- AI応答の生成 ---
@@ -810,10 +812,10 @@ async function generateReply(userMessage, user) {
 
         // 応答が空の場合や、不適切な内容の場合のフォールバック
         // 固定返信で処理されるワードに対してAIが応答しないように調整
+        // AIが不適切・危険・詐欺と判断した場合のフォールバック（ただし、通常は固定返信が優先されるため、このパスには来ないはず）
         if (!text || containsInappropriateWords(text) || containsDangerWords(text) || containsScamWords(text)) {
             console.warn(`Gemini AIからの応答が不適切または空でした。フォールバック応答を送信します。原文: "${text}"`);
-            // AIが不適切・危険・詐欺と判断した場合のフォールバック（ただし、通常は固定返信が優先されるため、このパスには来ないはず）
-            return "ごめんね、うまく言葉が見つからないみたい💦もう一度別のこと聞いてくれると嬉しいな🌸";
+            return "ごめんね、うまく言葉が見つからないみたい💦別のこと聞いてくれると嬉しいな🌸";
         }
 
         // 宿題トリガーを含む場合、AIの回答を調整
@@ -985,7 +987,7 @@ async function sendReminderMessages() {
                 }
             } catch (lineError) {
                 console.error(`❌ LINEリマインダー送信エラー（ユーザー: ${userId}）:`, lineError.message);
-                console.error(`❌ LINEリमाインダー送信エラー詳細（ユーザー: ${userId}）:`, lineError.stack);
+                console.error(`❌ LINEリマインダー送信エラー詳細（ユーザー: ${userId}）:`, lineError.stack);
             }
         }
         console.log('リマインダーメッセージの送信が完了しました。');
@@ -996,7 +998,7 @@ async function sendReminderMessages() {
 }
 
 // 定期見守りメッセージ送信 (毎日午前9時)
-schedule.scheduleJob('0 9 * * *', async () => { // ★ schedule.schedule を schedule.scheduleJob に修正
+schedule.scheduleJob('0 9 * * *', async () => {
     console.log('--- Cron job: 定期見守りメッセージ送信 ---');
     await sendScheduledWatchMessage();
 }, {
@@ -1004,7 +1006,7 @@ schedule.scheduleJob('0 9 * * *', async () => { // ★ schedule.schedule を sch
 });
 
 // リマインダーメッセージ送信 (毎日午前9時と午後9時)
-schedule.scheduleJob('0 9,21 * * *', async () => { // ★ schedule.schedule を schedule.scheduleJob に修正
+schedule.scheduleJob('0 9,21 * * *', async () => {
     console.log('--- Cron job: リマインダーメッセージ送信 ---');
     await sendReminderMessages();
 }, {
