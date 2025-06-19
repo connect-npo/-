@@ -7,8 +7,9 @@ require('dotenv').config();
 
 // LINEボットSDKの設定
 const config = {
-    channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
-    channelSecret: process.env.CHANNEL_SECRET,
+    // ★ここを修正しました: Renderの環境変数名に合わせて変更
+    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+    channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 
 const client = new line.Client(config);
@@ -53,7 +54,7 @@ const UserStatus = mongoose.model('UserStatus', userStatusSchema);
 // 緊急連絡先 Flex Message (emergencyFlex)
 const emergencyFlex = {
     type: "flex",
-    altText: "緊急時はこちらに連絡してね",
+    altText: "緊急時はこちらに連絡してね", // 40文字以内であることを確認
     contents: {
         type: "bubble",
         header: {
@@ -110,7 +111,7 @@ const emergencyFlex = {
                             height: "sm",
                             action: {
                                 type: "uri",
-                                label: "警察 (#9110)",
+                                label: "警察相談専用電話 (#9110)",
                                 uri: "tel:9110"
                             }
                         },
@@ -188,7 +189,7 @@ const emergencyFlex = {
 // 詐欺対策 Flex Message (scamFlex)
 const scamFlex = {
     type: "flex",
-    altText: "詐欺かな？と思ったら相談してね",
+    altText: "詐欺かな？と思ったら相談してね", // 40文字以内であることを確認
     contents: {
         type: "bubble",
         header: {
@@ -293,7 +294,7 @@ const scamFlex = {
 // 見守りサービス説明 Flex Message (watchServiceGuideFlex)
 const watchServiceGuideFlex = {
     type: "flex",
-    altText: "見守りサービスについて",
+    altText: "見守りサービスについて", // 40文字以内であることを確認
     contents: {
         type: "bubble",
         header: {
@@ -541,7 +542,7 @@ async function handleEvent(event) {
         console.log(`  - Danger word detected! Sending emergencyFlex.`);
         const dangerReplyText = "危険なワードを感知しました。心配です。すぐに信頼できる大人や専門機関に相談してください。";
         try {
-            await client.replyMessage(replyToken, [emergencyFlex]); // ★修正点: 配列でラップ
+            await client.replyMessage(replyToken, [emergencyFlex]); // ✅ これで正しいです (メッセージオブジェクトの配列)
             console.log("✅ Flex Message送信成功（危険ワード）");
             responsedBy = 'こころちゃん（危険ワード）';
             await Message.create({
@@ -575,7 +576,7 @@ async function handleEvent(event) {
         console.log(`  - Scam word detected! Sending scamFlex.`);
         const scamReplyText = "詐欺の可能性を感じたら、一人で悩まずに相談してくださいね。";
         try {
-            await client.replyMessage(replyToken, [scamFlex]); // ★修正点: 配列でラップ
+            await client.replyMessage(replyToken, [scamFlex]); // ✅ これで正しいです (メッセージオブジェクトの配列)
             console.log("✅ Flex Message送信成功（詐欺ワード）");
             responsedBy = 'こころちゃん（詐欺ワード）';
             await Message.create({
@@ -608,7 +609,7 @@ async function handleEvent(event) {
         console.log(`  - Watch service query detected! Sending watchServiceGuideFlex.`);
         const guideReplyText = "見守りサービスについてご案内します。";
         try {
-            await client.replyMessage(replyToken, [watchServiceGuideFlex]); // ★修正点: 配列でラップ
+            await client.replyMessage(replyToken, [watchServiceGuideFlex]); // ✅ これで正しいです (メッセージオブジェクトの配列)
             console.log("✅ Flex Message送信成功（見守りサービス案内）");
             responsedBy = 'こころちゃん（見守りサービス案内）';
             await Message.create({
@@ -774,12 +775,13 @@ async function escalateEmergency() {
     const users = await UserStatus.find({ status: 'watch_pending_reply' });
     const now = new Date();
     const SEVENTY_TWO_HOURS = 72 * 60 * 60 * 1000; // 72時間（ミリ秒）
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000; // 前のリマインダーからの時間計算に必要
 
     for (const user of users) {
         const timeSinceLastReminder = now.getTime() - (user.lastReminderSent ? user.lastReminderSent.getTime() : 0);
 
         // リマインダー送信から24時間以上（合計72時間）返信がない場合
-        if (timeSinceLastReminder >= (TWENTY_FOUR_HOURS)) { // 前のリマインダーから24時間経過
+        if (timeSinceLastReminder >= TWENTY_FOUR_HOURS) { // 前のリマインダーから24時間経過
             try {
                 // ここにNPO法人への通知ロジックを実装
                 // 例: 管理者へのLINE通知、メール送信など
