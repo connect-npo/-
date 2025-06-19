@@ -6,7 +6,7 @@ require('dotenv').config();
 // --- 各種モジュールのインポート ---
 const express = require('express');
 const { MongoClient, ServerApiVersion } = require('mongodb');
-const { Client } = require('@line/bot-sdk');
+const { Client, middleware } = require('@line/bot-sdk'); // ★ここを修正しました★ middlewareをClientと一緒にインポート
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const moment = require('moment-timezone'); // 日時計算用
 const schedule = require('node-schedule'); // 定期実行用
@@ -17,6 +17,7 @@ const config = {
     channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 const client = new Client(config);
+const lineMiddleware = middleware(config); // ★ここを修正しました★ middlewareインスタンスを別途作成
 
 // --- MongoDB接続設定 ---
 const uri = process.env.MONGO_URI;
@@ -183,8 +184,7 @@ const normalizedAllScamWords = [...normalizedHighConfidenceScamWords, ...normali
 const normalizedInappropriateWords = inappropriateWords.map(normalizeJapaneseText);
 
 // 危険ワードチェック関数
-function containsDangerWords(message) {
-    const normalizedMessage = normalizeJapaneseText(message);
+function containsDangerWords(normalizedMessage) { // ★引数をnormalizedMessageに修正★
     // デバッグログ追加
     console.log("⚠️ Normalized message (danger):", normalizedMessage);
     normalizedDangerWords.forEach(dangerWord => {
@@ -196,8 +196,7 @@ function containsDangerWords(message) {
 }
 
 // 詐欺ワードチェック関数
-function containsScamWords(message) {
-    const normalizedMessage = normalizeJapaneseText(message);
+function containsScamWords(normalizedMessage) { // ★引数をnormalizedMessageに修正★
     // デバッグログ追加
     console.log("⚠️ Normalized message (scam):", normalizedMessage);
     normalizedAllScamWords.forEach(scamWord => {
@@ -208,12 +207,11 @@ function containsScamWords(message) {
     });
 }
 
-function containsInappropriateWords(message) {
-    const normalizedMessage = normalizeJapaneseText(message);
+function containsInappropriateWords(normalizedMessage) { // ★引数をnormalizedMessageに修正★
     return normalizedInappropriateWords.some(word => normalizedMessage.includes(word));
 }
 
-function checkSpecialReply(message) {
+function checkSpecialReply(message) { // この関数は元のメッセージで正規表現をチェックするため、引数はmessageのまま
     const normalizedMessage = normalizeJapaneseText(message);
     for (let [key, value] of specialRepliesMap) {
         if (key instanceof RegExp) {
@@ -369,7 +367,8 @@ const watchServiceNoticeConfirmedFlex = {
 // --- Expressアプリケーション ---
 const app = express();
 app.use(express.json());
-app.post('/webhook', client.middleware(config), async (req, res) => {
+// ★ここを修正しました★ client.middleware(config) -> lineMiddleware
+app.post('/webhook', lineMiddleware, async (req, res) => {
     await Promise.all(req.body.events.map(async (event) => {
         console.log(`Processing event: ${JSON.stringify(event)}`);
 
@@ -581,8 +580,8 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
         // --- 固定返信（重要なものから順に） ---
 
         // ★★★ 危険ワード（自傷、いじめ、自殺など） - 最優先 ★★★
-        console.log("🚨 danger check:", containsDangerWords(userMessage));
-        if (containsDangerWords(userMessage)) {
+        console.log("🚨 danger check:", containsDangerWords(normalizedUserMessage)); // ★normalizedUserMessageを渡す★
+        if (containsDangerWords(normalizedUserMessage)) { // ★normalizedUserMessageを渡す★
             await client.replyMessage(replyToken, { type: "flex", altText: "緊急時の相談先", contents: emergencyFlex });
             await messagesCollection.insertOne({
                 userId: userId,
@@ -597,8 +596,8 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
         }
 
         // ★★★ 詐欺ワード/フレーズ - 次に優先 ★★★
-        console.log("🚨 scam check:", containsScamWords(userMessage));
-        if (containsScamWords(userMessage)) {
+        console.log("🚨 scam check:", containsScamWords(normalizedUserMessage)); // ★normalizedUserMessageを渡す★
+        if (containsScamWords(normalizedUserMessage)) { // ★normalizedUserMessageを渡す★
             await client.replyMessage(replyToken, { type: "flex", altText: "詐欺の可能性", contents: scamFlex });
             await messagesCollection.insertOne({
                 userId: userId,
@@ -613,8 +612,8 @@ app.post('/webhook', client.middleware(config), async (req, res) => {
         }
 
         // ★★★ 不適切ワード（悪口を含む） - その次に優先 ★★★
-        console.log("🚨 inappropriate check:", containsInappropriateWords(userMessage));
-        if (containsInappropriateWords(userMessage)) {
+        console.log("🚨 inappropriate check:", containsInappropriateWords(normalizedUserMessage)); // ★normalizedUserMessageを渡す★
+        if (containsInappropriateWords(normalizedUserMessage)) { // ★normalizedUserMessageを渡す★
             const inappropriateReply = "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖";
             await client.replyMessage(replyToken, { type: "text", text: inappropriateReply });
             await messagesCollection.insertOne({
@@ -786,7 +785,7 @@ async function generateReply(userMessage, user) {
         let text = response.text();
 
         // Gemini AIからの応答が不適切だった場合の再チェック
-        if (!text || containsInappropriateWords(text) || containsDangerWords(text) || containsScamWords(text)) {
+        if (!text || containsInappropriateWords(normalizeJapaneseText(text)) || containsDangerWords(normalizeJapaneseText(text)) || containsScamWords(normalizeJapaneseText(text))) { // AI応答も正規化してチェック
             console.warn(`Gemini AIからの応答が不適切または空でした。フォールバック応答を送信します。原文: "${text}"`);
             return "ごめんね、うまく言葉が見つからないみたい💦別のこと聞いてくれると嬉しいな🌸";
         }
