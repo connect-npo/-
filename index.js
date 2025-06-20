@@ -1,7 +1,7 @@
 require('dotenv').config(); // .env ファイルから環境変数を読み込む
 
 const express = require('express');
-const { Client } = require('@line/bot-sdk'); // ★修正点：LineClient を Client に変更
+const { Client } = require('@line/bot-sdk'); // LineClient を Client に修正
 const { MongoClient } = require('mongodb');
 const cron = require('node-cron');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -19,7 +19,7 @@ const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? JSON.parse(process.env.BOT_ADM
 const app = express();
 app.use(express.json());
 
-const client = new Client({ // ★修正点：LineClient を Client に変更
+const client = new Client({ // LineClient を Client に修正
     channelAccessToken: CHANNEL_ACCESS_TOKEN,
     channelSecret: CHANNEL_SECRET,
 });
@@ -91,27 +91,18 @@ const contextualScamPhrases = [
 ];
 
 
-// ★★★修正: ログ記録の条件をまつさんの意図に合わせる★★★
+// ログ記録の条件
 function shouldLogMessage(message, isFlagged, handledByWatchService, isAdminCommand, isResetCommand) {
-    // 常にログする条件:
-    // 1. フラグ付きメッセージ (不適切、危険、詐欺ワード検出時)
     if (isFlagged) return true;
-    // 2. 見守りサービス関連のやり取り
     if (handledByWatchService) return true;
-    // 3. 管理者コマンド
     if (isAdminCommand) return true;
-    // 4. 回数制限リセットコマンド（「そうだん」「相談」）
     if (isResetCommand) return true;
 
-    // 「相談モード」と見なすメッセージ
     const lowerMessage = message.toLowerCase();
     if (lowerMessage.includes("相談") || lowerMessage.includes("そうだん")) {
-        return true; // 相談モード開始のメッセージはログ
+        return true;
     }
-    // ここに、相談モードに入った後の会話もログするロジックが必要だが、
-    // 現在は「そうだん」コマンド自体をログすることで対応
-    // 一般の会話はログしない（DB負荷軽減のため）
-    return false; // 上記以外の通常の会話はログしない
+    return false;
 }
 
 // 緊急対応、詐欺対応のFlex Messageの定義 (変更なし)
@@ -308,7 +299,7 @@ async function checkSpecialReply(message) {
     return null;
 }
 
-// --- Gemini APIによる応答生成関数 --- (変更なし)
+// --- Gemini APIによる応答生成関数 ---
 async function generateReply(userMessage, modelName = "gemini-1.5-flash", systemInstruction = "あなたは「こころちゃん」という名前の親しみやすいLINE Botです。ユーザーの悩みに寄り添い、ポジティブで優しい言葉で応援します。絵文字をたくさん使って、ユーザーが安心できるような返答を心がけてください。") {
     const safetySettings = [
         {
@@ -368,7 +359,7 @@ async function generateReply(userMessage, modelName = "gemini-1.5-flash", system
     }
 }
 
-// --- 見守りサービス関連の固定メッセージと機能 --- (変更なし)
+// --- 見守りサービス関連の固定メッセージと機能 ---
 
 const watchMessages = [
     "こんにちは🌸 こころちゃんだよ！ 今日も元気にしてるかな？💖",
@@ -529,7 +520,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
     return false; // 見守りサービス関連の処理ではなかった場合
 }
 
-// --- スケジュールされた見守りメッセージ送信関数 --- (変更なし)
+// --- スケジュールされた見守りメッセージ送信関数 ---
 async function sendScheduledWatchMessage() {
     console.log('--- 定期見守りメッセージ送信処理を開始します ---');
     const db = await connectToMongoDB();
@@ -677,7 +668,7 @@ async function sendScheduledWatchMessage() {
     console.log('✅ 定期見守りメッセージ送信処理を終了しました。');
 }
 
-// 毎日午前4時に全ユーザーの flaggedMessageCount をリセットするCronジョブ (変更なし、日間リセット)
+// 毎日午前4時に全ユーザーの flaggedMessageCount をリセットするCronジョブ
 cron.schedule('0 4 * * *', async () => { // JST 4:00
     const db = await connectToMongoDB();
     if (!db) {
@@ -695,14 +686,14 @@ cron.schedule('0 4 * * *', async () => { // JST 4:00
     timezone: "Asia/Tokyo"
 });
 
-// 毎日午後3時に見守りメッセージを送信 (日本時間 JST = UTC+9) (変更なし)
+// 毎日午後3時に見守りメッセージを送信 (日本時間 JST = UTC+9)
 cron.schedule('0 15 * * *', sendScheduledWatchMessage, { // JST 15:00
     scheduled: true,
     timezone: "Asia/Tokyo"
 });
 
 
-// Postbackイベントハンドラ (変更なし)
+// Postbackイベントハンドラ
 app.post('/webhook', async (req, res) => {
     const events = req.body.events;
     for (const event of events) {
@@ -747,7 +738,7 @@ app.post('/webhook', async (req, res) => {
             const usersCollection = db.collection("users");
             const messagesCollection = db.collection("messages");
 
-            // ★追加: 管理者コマンドの処理 (変更なし)
+            // 管理者コマンドの処理
             if (isBotAdmin(userId)) {
                 const unlockMatch = userMessage.match(/^\/unlock (U[0-9a-f]{32})$/);
                 if (unlockMatch) {
@@ -780,7 +771,7 @@ app.post('/webhook', async (req, res) => {
                 }
             }
 
-            // ★★★修正: 「そうだん」コマンドの処理（リセットと相談モード設定）★★★
+            // 「そうだん」コマンドの処理（リセットと相談モード設定）
             if (userMessage === 'そうだん' || userMessage === '相談') {
                 const user = await usersCollection.findOne({ userId: userId });
                 if (user) {
@@ -806,7 +797,7 @@ app.post('/webhook', async (req, res) => {
             }
 
 
-            // ユーザーが存在しない場合、初回登録 (変更なし)
+            // ユーザーが存在しない場合、初回登録
             let user = await usersCollection.findOne({ userId: userId });
             if (!user) {
                 user = {
@@ -855,17 +846,15 @@ app.post('/webhook', async (req, res) => {
                 }
             }
 
-            // ★★★修正: アカウント停止判定と、flaggedMessageCountの増加を無効化★★★
-            // これにより、DBの flaggedMessageCount の値に関わらず、会話制限は発動しません。
-            // ただし、管理者コマンドや「そうだん」コマンドでのリセットは引き続き有効です。
-            if (false) { // このブロックは実行されません
+            // アカウント停止判定と、flaggedMessageCountの増加を無効化（このブロックは実行されません）
+            if (false) {
                 // 元の永久ロック処理
                 // 元の日次停止処理
                 // flaggedMessageCountが3を超えたら停止状態にする処理
             }
 
 
-            // 見守りサービス関連の処理を優先 (変更なし)
+            // 見守りサービス関連の処理を優先
             const handledByWatchService = await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, userMessage);
             if (handledByWatchService) {
                 return res.status(200).send('OK');
@@ -875,35 +864,27 @@ app.post('/webhook', async (req, res) => {
             // 危険ワード、詐欺ワード、不適切ワードのチェック
             let replyText;
             let respondedBy = 'こころちゃん（AI）';
-            let logType = 'normal';
-            let isFlaggedMessage = false; // フラグ付きメッセージであるか
+            let logType = 'normal'; // デフォルト
 
-            // ★★★修正: 危険ワードなどの検出は行うが、flaggedMessageCountは増加させない★★★
             if (containsInappropriateWords(userMessage)) {
                 replyText = { type: 'text', text: 'ごめんなさい、その言葉は私にはお話しできないな🌸 もしよかったら、違う表現で話してみてくれる？💖' };
                 respondedBy = 'こころちゃん（不適切ワード）';
-                isFlaggedMessage = true;
-                // flaggedMessageCountの増加処理はここでは行わない
-                // logTypeはisFlaggedMessageがtrueなので、shouldLogMessageでtrueになる
+                logType = 'inappropriate_word'; // logType を設定
             } else if (containsDangerWords(userMessage)) {
-                replyText = emergencyFlex; // 緊急連絡先のFlex Message
+                replyText = emergencyFlex;
                 respondedBy = 'こころちゃん（危険ワード）';
-                isFlaggedMessage = true;
-                // flaggedMessageCountの増加処理はここでは行わない
-                // logTypeはisFlaggedMessageがtrueなので、shouldLogMessageでtrueになる
+                logType = 'danger_word'; // logType を設定
             } else if (containsScamWords(userMessage) || contextualScamPhrases.some(phrase => userMessage.toLowerCase().includes(phrase.toLowerCase()))) {
-                replyText = scamFlex; // 詐欺注意のFlex Message
+                replyText = scamFlex;
                 respondedBy = 'こころちゃん（詐欺ワード）';
-                isFlaggedMessage = true;
-                // flaggedMessageCountの増加処理はここでは行わない
-                // logTypeはisFlaggedMessageがtrueなので、shouldLogMessageでtrueになる
+                logType = 'scam_word'; // logType を設定
             } else {
                 // 通常のAI応答または固定応答
-                if (isOrganizationInquiry(userMessage)) {
+                if (await isOrganizationInquiry(userMessage)) { // isOrganizationInquiryもasync関数なのでawait
                     replyText = { type: 'text', text: await generateReply(userMessage) };
-                    responpondedBy = 'こころちゃん（AI-組織説明）';
+                    respondedBy = 'こころちゃん（AI-組織説明）';
                 } else {
-                    const specialReply = checkSpecialReply(userMessage);
+                    const specialReply = await checkSpecialReply(userMessage); // ★修正点：await を追加
                     if (specialReply) {
                         replyText = { type: 'text', text: specialReply };
                         respondedBy = 'こころちゃん（固定応答）';
@@ -921,9 +902,9 @@ app.post('/webhook', async (req, res) => {
                     await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
                 }
 
-                // ★★★修正: ログ記録の条件を shouldLogMessage に基づいて行う★★★
                 const isResetCommand = (userMessage === 'そうだん' || userMessage === '相談');
                 const isAdminCommand = userMessage.startsWith('/unlock');
+                const isFlaggedMessage = (logType === 'inappropriate_word' || logType === 'danger_word' || logType === 'scam_word'); // logTypeから判定
 
                 if (shouldLogMessage(userMessage, isFlaggedMessage, handledByWatchService, isAdminCommand, isResetCommand)) {
                     await messagesCollection.insertOne({
