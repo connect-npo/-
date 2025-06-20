@@ -382,7 +382,7 @@ const watchMessages = [
     "こころちゃんだよ🌸 嬉しいことがあったら、教えてね💖",
     "こんにちは😊 ちょっと一息入れようね！",
     "やっほー！ こころだよ🌸 あなたのことが心配だよ！",
-    "元気かな？💖 どんな時でも、こころはそばにいるよ！",
+    "元気かな？💖 こころちゃんは、いつでもあなたの味方だよ！",
     "ねぇねぇ、こころだよ😊 辛い時は、無理しないでね！",
     "いつも見守ってるよ🌸 こころちゃんだよ💖",
     "こんにちは😊 今日も一日、穏やかに過ごせたかな？",
@@ -463,7 +463,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
             userId: userId,
             message: userMessage,
             replyText: '見守りサービスを登録するね！緊急時に連絡する「電話番号」を教えてくれるかな？🌸',
-            responsedBy: 'こころちゃん（見守り登録開始）',
+            respondedBy: 'こころちゃん（見守り登録開始）',
             timestamp: new Date(),
             logType: 'watch_service_registration_start'
         });
@@ -483,7 +483,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
             userId: userId,
             message: userMessage,
             replyText: `緊急連絡先 ${userMessage} を登録したよ🌸 これで見守りサービスが始まったね！ありがとう💖`,
-            responsedBy: 'こころちゃん（見守り登録完了）',
+            respondedBy: 'こころちゃん（見守り登録完了）',
             timestamp: new Date(),
             logType: 'watch_service_registration_complete'
         });
@@ -504,7 +504,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
                 userId: userId,
                 message: userMessage,
                 replyText: '見守りサービスを解除したよ🌸 またいつでも登録できるからね💖',
-                responsedBy: 'こころちゃん（見守り解除）',
+                respondedBy: 'こころちゃん（見守り解除）',
                 timestamp: new Date(),
                 logType: 'watch_service_unregister'
             });
@@ -627,7 +627,7 @@ async function sendScheduledWatchMessage() {
                         userId: user.userId,
                         message: '(定期見守りメッセージ - 緊急連絡先通知)',
                         replyText: emergencyMessage,
-                        responsedBy: 'こころちゃん（緊急通知）',
+                        respondedBy: 'こころちゃん（緊急通知）',
                         timestamp: now,
                         logType: 'scheduled_watch_message_emergency'
                     });
@@ -646,7 +646,7 @@ async function sendScheduledWatchMessage() {
                     userId: user.userId,
                     message: '(定期見守りメッセージ)',
                     replyText: messageToSend.text,
-                    responsedBy: respondedBy,
+                    respondedBy: respondedBy,
                     timestamp: now,
                     logType: logType
                 });
@@ -657,7 +657,7 @@ async function sendScheduledWatchMessage() {
                     userId: user.userId,
                     message: '(定期見守りメッセージ - 送信失敗)',
                     replyText: `送信失敗: ${error.message}`,
-                    responsedBy: 'こころちゃん（システムエラー）',
+                    respondedBy: 'こころちゃん（システムエラー）',
                     timestamp: now,
                     logType: 'scheduled_watch_message_send_failed'
                 });
@@ -693,50 +693,101 @@ cron.schedule('0 15 * * *', sendScheduledWatchMessage, { // JST 15:00
 });
 
 
-// Postbackイベントハンドラ
+// ⭐ここから単一の/webhookエンドポイントに統合⭐
 app.post('/webhook', async (req, res) => {
     const events = req.body.events;
     for (const event of events) {
+        const userId = event.source.userId;
+        // userIdが未定義の場合、グループなどからのイベントでsourceIdを使う必要があるが、
+        // 今回はユーザー個別チャットを想定するため、userIdが必須とする。
+        if (!userId) {
+            console.warn('⚠️ userIdが取得できませんでした。グループイベントなどの可能性があります。');
+            continue; // userIdが取得できないイベントはスキップ
+        }
+
+        const db = await connectToMongoDB();
+        if (!db) {
+            console.error('MongoDB接続失敗: Webhookイベントを処理できません。');
+            return res.status(500).send('MongoDB connection failed');
+        }
+        const usersCollection = db.collection("users");
+        const messagesCollection = db.collection("messages");
+
+        // ユーザーが存在しない場合、初回登録
+        let user = await usersCollection.findOne({ userId: userId });
+        if (!user) {
+            user = {
+                userId: userId,
+                displayName: await getUserDisplayName(userId),
+                createdAt: new Date(),
+                lastMessageAt: new Date(),
+                wantsWatchCheck: false,
+                emergencyContact: null,
+                registrationStep: null,
+                scheduledMessageSent: false,
+                firstReminderSent: false,
+                secondReminderSent: false,
+                lastOkResponse: new Date(),
+                flaggedMessageCount: 0, // ここで初期化
+                isAccountSuspended: false, // ここで初期化
+                suspensionReason: null, // ここで初期化
+                isPermanentlyLocked: false, // ここで初期化
+                lastPermanentLockNotifiedAt: null // ここで初期化
+            };
+            await usersCollection.insertOne(user);
+            console.log(`新規ユーザー登録: ${user.displayName} (${userId})`);
+        } else {
+            // 既存ユーザーの最終メッセージ日時を更新
+            await usersCollection.updateOne(
+                { userId: userId },
+                { $set: { lastMessageAt: new Date() } }
+            );
+            // 既存ユーザーでflaggedMessageCountなどが未定義の場合に初期化
+            if (user.flaggedMessageCount === undefined) {
+                await usersCollection.updateOne({ userId: userId }, { $set: { flaggedMessageCount: 0 } });
+                user.flaggedMessageCount = 0;
+            }
+            if (user.isAccountSuspended === undefined) {
+                await usersCollection.updateOne({ userId: userId }, { $set: { isAccountSuspended: false, suspensionReason: null } });
+                user.isAccountSuspended = false;
+                user.suspensionReason = null;
+            }
+            if (user.isPermanentlyLocked === undefined) {
+                await usersCollection.updateOne({ userId: userId }, { $set: { isPermanentlyLocked: false } });
+                user.isPermanentlyLocked = false;
+            }
+            if (user.lastPermanentLockNotifiedAt === undefined) {
+                await usersCollection.updateOne({ userId: userId }, { $set: { lastPermanentLockNotifiedAt: null } });
+                user.lastPermanentLockNotifiedAt = null;
+            }
+        }
+
+
+        // アカウント停止判定と、flaggedMessageCountの増加を無効化（このブロックは実行されません）
+        if (false) {
+            // 元の永久ロック処理
+            // 元の日次停止処理
+            // flaggedMessageCountが3を超えたら停止状態にする処理
+        }
+
+        // --- Postbackイベント処理 ---
         if (event.type === 'postback' && event.postback.data) {
+            console.log('✅ Postbackイベントを受信しました。');
             const data = new URLSearchParams(event.postback.data);
             const action = data.get('action');
-            const userId = event.source.userId;
-
-            const db = await connectToMongoDB();
-            if (!db) {
-                console.error('MongoDB接続失敗: Postbackイベントを処理できません。');
-                return res.status(500).send('MongoDB connection failed');
-            }
-            const usersCollection = db.collection("users");
-            const messagesCollection = db.collection("messages");
 
             const handledByWatchService = await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, `（Postback: ${action}）`);
             if (handledByWatchService) {
-                return res.status(200).send('OK');
+                // Postback処理で見守りサービス関連がハンドリングされた場合、次のイベントへ
+                continue;
             }
-
             // 他のPostbackアクションがある場合はここに追加
         }
-    }
-    res.status(200).send('OK');
-});
 
-// メッセージイベントハンドラ
-app.post('/webhook', async (req, res) => {
-    const events = req.body.events;
-    for (const event of events) {
+        // --- メッセージイベント処理 ---
         if (event.type === 'message' && event.message.type === 'text') {
             const userMessage = event.message.text;
-            const userId = event.source.userId;
-            const sourceId = event.source.type === 'group' ? event.source.groupId : event.source.userId;
-
-            const db = await connectToMongoDB();
-            if (!db) {
-                console.error('MongoDB接続失敗: メッセージイベントを処理できません。');
-                return res.status(500).send('MongoDB connection failed');
-            }
-            const usersCollection = db.collection("users");
-            const messagesCollection = db.collection("messages");
+            console.log("ユーザーからのメッセージ:", userMessage); // ⚡️ 受信確認用ログ
 
             // 管理者コマンドの処理
             if (isBotAdmin(userId)) {
@@ -763,17 +814,17 @@ app.post('/webhook', async (req, res) => {
                         userId: userId,
                         message: userMessage,
                         replyText: `（管理者コマンド: ${userMessage}）`,
-                        responsedBy: 'こころちゃん（管理者コマンド処理）',
+                        respondedBy: 'こころちゃん（管理者コマンド処理）',
                         timestamp: new Date(),
                         logType: 'admin_command'
                     });
-                    return res.status(200).send('OK');
+                    continue; // 管理者コマンド処理後は次のイベントへ
                 }
             }
 
             // 「そうだん」コマンドの処理（リセットと相談モード設定）
             if (userMessage === 'そうだん' || userMessage === '相談') {
-                const user = await usersCollection.findOne({ userId: userId });
+                // user 変数は既に上で取得済み
                 if (user) {
                     // 全てのフラグとカウントをリセット
                     await usersCollection.updateOne(
@@ -786,80 +837,21 @@ app.post('/webhook', async (req, res) => {
                         userId: userId,
                         message: userMessage,
                         replyText: '（会話制限リセット＆相談モード開始）',
-                        responsedBy: 'こころちゃん（システム）',
+                        respondedBy: 'こころちゃん（システム）',
                         timestamp: new Date(),
                         logType: 'conversation_limit_reset_and_consultation_mode'
                     });
                 } else {
                     await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんなさい、アカウント情報が見つかりませんでした。' });
                 }
-                return res.status(200).send('OK'); // コマンド処理後はここで終了
+                continue; // コマンド処理後は次のイベントへ
             }
-
-
-            // ユーザーが存在しない場合、初回登録
-            let user = await usersCollection.findOne({ userId: userId });
-            if (!user) {
-                user = {
-                    userId: userId,
-                    displayName: await getUserDisplayName(userId),
-                    createdAt: new Date(),
-                    lastMessageAt: new Date(),
-                    wantsWatchCheck: false,
-                    emergencyContact: null,
-                    registrationStep: null,
-                    scheduledMessageSent: false,
-                    firstReminderSent: false,
-                    secondReminderSent: false,
-                    lastOkResponse: new Date(),
-                    flaggedMessageCount: 0,
-                    isAccountSuspended: false,
-                    suspensionReason: null,
-                    isPermanentlyLocked: false,
-                    lastPermanentLockNotifiedAt: null
-                };
-                await usersCollection.insertOne(user);
-                console.log(`新規ユーザー登録: ${user.displayName} (${userId})`);
-            } else {
-                // 既存ユーザーの最終メッセージ日時を更新
-                await usersCollection.updateOne(
-                    { userId: userId },
-                    { $set: { lastMessageAt: new Date() } }
-                );
-                // 既存ユーザーでflaggedMessageCountなどが未定義の場合に初期化
-                if (user.flaggedMessageCount === undefined) {
-                    await usersCollection.updateOne({ userId: userId }, { $set: { flaggedMessageCount: 0 } });
-                    user.flaggedMessageCount = 0;
-                }
-                if (user.isAccountSuspended === undefined) {
-                    await usersCollection.updateOne({ userId: userId }, { $set: { isAccountSuspended: false, suspensionReason: null } });
-                    user.isAccountSuspended = false;
-                    user.suspensionReason = null;
-                }
-                if (user.isPermanentlyLocked === undefined) {
-                    await usersCollection.updateOne({ userId: userId }, { $set: { isPermanentlyLocked: false } });
-                    user.isPermanentlyLocked = false;
-                }
-                if (user.lastPermanentLockNotifiedAt === undefined) {
-                    await usersCollection.updateOne({ userId: userId }, { $set: { lastPermanentLockNotifiedAt: null } });
-                    user.lastPermanentLockNotifiedAt = null;
-                }
-            }
-
-            // アカウント停止判定と、flaggedMessageCountの増加を無効化（このブロックは実行されません）
-            if (false) {
-                // 元の永久ロック処理
-                // 元の日次停止処理
-                // flaggedMessageCountが3を超えたら停止状態にする処理
-            }
-
 
             // 見守りサービス関連の処理を優先
             const handledByWatchService = await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, userMessage);
             if (handledByWatchService) {
-                return res.status(200).send('OK');
+                continue; // 見守りサービス関連がハンドリングされた場合、次のイベントへ
             }
-
 
             // 危険ワード、詐欺ワード、不適切ワードのチェック
             let replyText;
@@ -884,7 +876,7 @@ app.post('/webhook', async (req, res) => {
                     replyText = { type: 'text', text: await generateReply(userMessage) };
                     respondedBy = 'こころちゃん（AI-組織説明）';
                 } else {
-                    const specialReply = await checkSpecialReply(userMessage); // ★修正点：await を追加
+                    const specialReply = await checkSpecialReply(userMessage);
                     if (specialReply) {
                         replyText = { type: 'text', text: specialReply };
                         respondedBy = 'こころちゃん（固定応答）';
@@ -911,7 +903,7 @@ app.post('/webhook', async (req, res) => {
                         userId: userId,
                         message: userMessage,
                         replyText: (replyText && typeof replyText === 'string') ? replyText : JSON.stringify(replyText),
-                        responsedBy: respondedBy,
+                        respondedBy: respondedBy, // ⭐修正:responsedByをrespondedByに修正済⭐
                         timestamp: new Date(),
                         logType: logType
                     });
@@ -924,8 +916,9 @@ app.post('/webhook', async (req, res) => {
             }
         }
     }
-    res.status(200).send('OK');
+    res.status(200).send('OK'); // 全てのイベント処理後にまとめてOKを返す
 });
+// ⭐ここまで単一の/webhookエンドポイントに統合⭐
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
