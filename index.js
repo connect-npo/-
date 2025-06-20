@@ -1,6 +1,6 @@
 require('dotenv').config(); // .env ファイルから環境変数を読み込む
 
-const path = require('path');
+const path = require('path'); // ここでpathモジュールを読み込みます
 const express = require('express');
 const { Client } = require('@line/bot-sdk');
 const { MongoClient } = require('mongodb');
@@ -43,20 +43,23 @@ let modelConfig = {}; // モデル設定も外部化
 // ファイルから設定を読み込む関数
 async function loadConfig() {
     try {
-        dangerWords = JSON.parse(await fs.readFile('./kokoro-config/danger_words.json', 'utf8'));
-        scamWords = JSON.parse(await fs.readFile('./kokoro-config/scam_words.json', 'utf8'));
-        inappropriateWords = JSON.parse(await fs.readFile('./kokoro-config/inappropriate_words.json', 'utf8'));
-        specialReplies = JSON.parse(await fs.readFile('./kokoro-config/special_replies.json', 'utf8')); // 新規追加
-        modelConfig = JSON.parse(await fs.readFile('./kokoro-config/model_config.json', 'utf8'));
+        const configDir = path.join(__dirname, 'kokoro-config');
+        const templateDir = path.join(configDir, 'reply_templates');
+
+        dangerWords = JSON.parse(await fs.readFile(path.join(configDir, 'danger_words.json'), 'utf8'));
+        scamWords = JSON.parse(await fs.readFile(path.join(configDir, 'scam_words.json'), 'utf8'));
+        inappropriateWords = JSON.parse(await fs.readFile(path.join(configDir, 'inappropriate_words.json'), 'utf8'));
+        specialReplies = JSON.parse(await fs.readFile(path.join(configDir, 'special_replies.json'), 'utf8'));
+        modelConfig = JSON.parse(await fs.readFile(path.join(configDir, 'model_config.json'), 'utf8'));
 
         // Flex Messageテンプレートの読み込みと電話番号の置き換え
-        emergencyFlexTemplate = JSON.parse(await fs.readFile('./kokoro-config/reply_templates/emergency_flex.json', 'utf8'));
+        emergencyFlexTemplate = JSON.parse(await fs.readFile(path.join(templateDir, 'emergency_flex.json'), 'utf8'));
         emergencyFlexTemplate.contents.footer.contents[6].action.uri = `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}`; // 理事長に電話
 
-        scamFlexTemplate = JSON.parse(await fs.readFile('./kokoro-config/reply_templates/scam_flex.json', 'utf8'));
+        scamFlexTemplate = JSON.parse(await fs.readFile(path.join(templateDir, 'scam_flex.json'), 'utf8'));
         scamFlexTemplate.contents.footer.contents[3].action.uri = `tel:${EMERGENCY_CONTACT_PHONE_NUMBER}`; // 理事長に電話
 
-        watchServiceGuideFlexTemplate = JSON.parse(await fs.readFile('./kokoro-config/reply_templates/watch_service_guide_flex.json', 'utf8'));
+        watchServiceGuideFlexTemplate = JSON.parse(await fs.readFile(path.join(templateDir, 'watch_service_guide_flex.json'), 'utf8'));
 
         console.log("✅ 設定ファイルを読み込みました。");
     } catch (error) {
@@ -156,7 +159,6 @@ function containsHomeworkTrigger(text) {
     const lowerText = text.toLowerCase();
     return homeworkTriggers.some(word => lowerText.includes(word));
 }
-
 
 // --- Gemini APIによる応答生成関数 ---
 async function generateReply(userMessage) {
@@ -690,9 +692,6 @@ app.post('/webhook', async (req, res) => {
             }
 
             // 非同期応答のための処理開始
-            // ここで即座にLINE APIにHTTP 200 OKを返し、AI応答はバックグラウンドで処理してプッシュする
-            // res.status(200).send('OK'); // ここでは既に上で送っているため不要
-
             (async () => { // 即時実行関数で非同期処理を開始
                 let replyMessageObject; // LineAPIで送るメッセージオブジェクト
                 let respondedBy = 'こころちゃん（AI）';
