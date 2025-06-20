@@ -85,10 +85,10 @@ async function loadConfig() {
         const configDir = path.join(__dirname, 'kokoro-config');
         const templateDir = path.join(configDir, 'reply_templates');
 
-        // ★★★ 重要: dangerWords と specialRepliesMap は直接定義したので、JSONからの読み込みは不要です。★★★
-        // ★★★ 以下の行があなたのファイルに残っていたら、完全に削除してください: ★★★
-        // dangerWords = JSON.parse(await fs.readFile(path.join(configDir, 'danger_words.json'), 'utf8'));
-        // specialReplies = JSON.parse(await fs.readFile(path.join(configDir, 'special_replies.json'), 'utf8'));
+        // ★★★ ここが重要！以下の行は完全に削除済みです。★★★
+        // もしあなたのファイルに以下の行が残っていたら、完全に削除してください。
+        // dangerWords = JSON.parse(await fs.readFile(path.join(configDir, 'danger_words.json'), 'utf8')); // 削除済み
+        // specialReplies = JSON.parse(await fs.readFile(path.join(configDir, 'special_replies.json'), 'utf8')); // 削除済み
 
         scamWords = JSON.parse(await fs.readFile(path.join(configDir, 'scam_words.json'), 'utf8'));
         inappropriateWords = JSON.parse(await fs.readFile(path.join(configDir, 'inappropriate_words.json'), 'utf8'));
