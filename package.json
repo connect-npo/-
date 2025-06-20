@@ -4,7 +4,7 @@
   "description": "LINE bot for NPO Connect",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js"  <-- ここが重要です！
   },
   "keywords": [],
   "author": "",
