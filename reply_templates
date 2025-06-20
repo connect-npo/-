@@ -1,97 +1,48 @@
 {
-  "type": "flex",
-  "altText": "⚠️ 緊急時はこちらに連絡してね",
-  "contents": {
-    "type": "bubble",
-    "body": {
-      "type": "box",
-      "layout": "vertical",
-      "contents": [
-        {
-          "type": "text",
-          "text": "⚠️ 緊急時はこちらに連絡してね",
-          "weight": "bold",
-          "color": "#D70000",
-          "size": "sm"
+    "type": "flex",
+    "altText": "こころちゃんから見守りサービスのご案内🌸",
+    "contents": {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                { "type": "text", "text": "🌸こころちゃん見守りサービス🌸", "weight": "bold", "size": "lg", "color": "#FF69B4" },
+                {
+                    "type": "text",
+                    "text": "💖 こころちゃんからの大切なお知らせだよ🌸\n\n【こころちゃん見守りサービス 利用にあたってのご注意】\n\n💖 こころちゃん見守りサービスとは？\n定期的にこころちゃんからあなたに「元気かな？」って声をかけるLINEメッセージが届くサービスだよ！🌸 つながりを感じて、ひとりじゃないって安心を届けたいな💖\n\n✅ ご利用前に確認してね\n・3日に1度、午後3時に「こころちゃん」からメッセージが届くよ😊\n・「OKだよ💖」などのボタンを押して、こころに教えてね！\n・24時間以内に教えてくれなかったら、もう一度メッセージを送るね。\n・その再送から5時間以内にも応答がなかったら、登録してくれた「緊急連絡先」に連絡が行くからね。\n・安全のために、もし応答がなかったら、ログをこころが確認する場合があるよ。\n\n🚨 ちょっとした注意だよ\n・このサービスは、あなたが「利用したい！」って言ってくれたら始まるんだ。自動では始まらないから安心してね。\n・緊急連絡先をまだ登録していないと、見守りサービスはうまく動かないんだ💦\n・もし意図的に連絡してくれなかったり、ルールを守ってもらえなかったりすると、理事会で相談してサービスを止めさせていただくことがあるから、ご協力をお願いします。\n\n上のことに「うん！」って同意してくれたら、緊急連絡先の電話番号をメッセージで送ってくれると嬉しいな😊\n（例：09012345678）",
+                    "wrap": true,
+                    "size": "sm",
+                    "margin": "md"
+                }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "horizontal",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "postback",
+                        "label": "見守り登録する",
+                        "data": "action=watch_register"
+                    },
+                    "style": "primary",
+                    "color": "#FFB6C1"
+                },
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "postback",
+                        "label": "見守り解除する",
+                        "data": "action=watch_unregister"
+                    },
+                    "style": "secondary",
+                    "color": "#ADD8E6"
+                }
+            ]
         }
-      ]
-    },
-    "footer": {
-      "type": "box",
-      "layout": "vertical",
-      "spacing": "sm",
-      "contents": [
-        {
-          "type": "button",
-          "style": "primary",
-          "color": "#FFA07A",
-          "action": {
-            "type": "uri",
-            "label": "チャイルドライン（16〜21時）",
-            "uri": "tel:012011110"
-          }
-        },
-        {
-          "type": "button",
-          "style": "primary",
-          "color": "#FF7F50",
-          "action": {
-            "type": "uri",
-            "label": "いのちの電話（10〜22時）",
-            "uri": "tel:0570078640"
-          }
-        },
-        {
-          "type": "button",
-          "style": "primary",
-          "color": "#20B2AA",
-          "action": {
-            "type": "uri",
-            "label": "東京都こころ相談（24時間）",
-            "uri": "https://tokyo-kokoro.metro.tokyo.lg.jp/"
-          }
-        },
-        {
-          "type": "button",
-          "style": "primary",
-          "color": "#9370DB",
-          "action": {
-            "type": "uri",
-            "label": "よりそいチャット（8〜22時半）",
-            "uri": "https://yorisoi-chat.jp/"
-          }
-        },
-        {
-          "type": "button",
-          "style": "primary",
-          "color": "#1E90FF",
-          "action": {
-            "type": "uri",
-            "label": "警察 110（24時間）",
-            "uri": "tel:110"
-          }
-        },
-        {
-          "type": "button",
-          "style": "primary",
-          "color": "#FF4500",
-          "action": {
-            "type": "uri",
-            "label": "消防・救急 119（24時間）",
-            "uri": "tel:119"
-          }
-        },
-        {
-          "type": "button",
-          "style": "primary",
-          "color": "#DA70D6",
-          "action": {
-            "type": "uri",
-            "label": "理事長に電話",
-            "uri": "tel:${process.env.EMERGENCY_CONTACT_PHONE_NUMBER || '09048393313'}"
-          }
-        }
-      ]
     }
-  }
 }
