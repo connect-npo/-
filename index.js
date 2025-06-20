@@ -1,247 +1,137 @@
-// index.js
-
+// --- dotenvを読み込んで環境変数を安全に管理 ---
 require('dotenv').config();
+
+// --- 必要なモジュールのインポート ---
 const express = require('express');
-const bodyParser = require('body-parser');
+const axios = require('axios');
 const { Client } = require('@line/bot-sdk');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { MongoClient } = require('mongodb');
-const cron = require('node-cron'); // cronジョブ用
+const { MongoClient, ServerApiVersion } = require("mongodb");
+const cron = require('node-cron');
+
+// Google Generative AI SDKのインポート
+const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai');
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json());
 
-// 環境変数 - ここをRenderの設定と完全に一致させる
 const config = {
-    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-    channelSecret: process.env.LINE_CHANNEL_SECRET,
+    channelAccessToken: process.env.YOUR_CHANNEL_ACCESS_TOKEN,
+    channelSecret: process.env.YOUR_CHANNEL_SECRET,
 };
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
-const OWNER_USER_ID = process.env.OWNER_USER_ID;
-const MONGODB_URI = process.env.MONGODB_URI;
-const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? process.env.BOT_ADMIN_IDS.split(',') : [];
 
 const client = new Client(config);
+
+const GEMINI_API_KEY = process.env.YOUR_GEMINI_API_KEY;
+const OFFICER_GROUP_ID = process.env.OFFICER_GROUP_ID;
+const OWNER_USER_ID = process.env.OWNER_USER_ID;
+const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? process.env.BOT_ADMIN_IDS.split(',') : [];
+
+if (OWNER_USER_ID && !BOT_ADMIN_IDS.includes(OWNER_USER_ID)) {
+    BOT_ADMIN_IDS.push(OWNER_USER_ID);
+}
+
+
+// --- MongoDB設定 ---
+const MONGODB_URI = process.env.MONGODB_URI;
+let mongoClient;
+let dbInstance = null;
+
+async function connectToMongoDB(retries = 5) {
+    if (dbInstance) {
+        return dbInstance;
+    }
+
+    for (let i = 0; i < retries; i++) {
+        try {
+            mongoClient = new MongoClient(MONGODB_URI, {
+                serverApi: {
+                    version: ServerApiVersion.v1,
+                    strict: true,
+                    deprecationErrors: true,
+                }
+            });
+            await mongoClient.connect();
+            console.log("✅ MongoDBに接続しました！");
+            dbInstance = mongoClient.db("connect-npo");
+            return dbInstance;
+        } catch (err) {
+            console.error(`❌ MongoDB接続失敗（${i + 1}/${retries}回目）`, err);
+            await new Promise(res => setTimeout(res, 2000));
+        }
+    }
+    console.error("❌ MongoDBへの接続に複数回失敗しました。アプリケーションを終了します。");
+    process.exit(1);
+}
+
+// Google Generative AIのインスタンス化
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
-let dbInstance;
-
-// MongoDB接続関数
-async function connectToMongoDB() {
-    try {
-        const client = new MongoClient(MONGODB_URI);
-        await client.connect();
-        dbInstance = client.db("kokoro_bot_db"); // データベース名を指定
-        console.log("MongoDB に通常に接続されました。");
-    } catch (error) {
-        console.error("MongoDB 接続エラー:", error);
-        process.exit(1); // 接続失敗時はプロセスを終了
-    }
-}
-
-// ユーザーの表示名を取得する関数
-async function getUserDisplayName(userId) {
-    try {
-        const profile = await client.getProfile(userId);
-        return profile.displayName;
-    } catch (error) {
-        console.error("LINEユーザーの表示名取得エラー:", error);
-        return "Unknown User"; // 取得できない場合はUnknown User
-    }
-}
-
-// 会員種別ごとのメッセージ上限とAIモデル定義
-const MEMBERSHIP_CONFIG = {
-    "guest": { maxMessages: 5, model: "gemini-1.5-flash", systemInstructionModifier: "default", exceedLimitMessage: "ごめんなさい、今月の会話回数の上限に達してしまったみたい💦\nまた来月になったらお話しできるから、それまで待っててくれると嬉しいな💖" },
-    "free": { maxMessages: 20, model: "gemini-1.5-flash", systemInstructionModifier: "children", exceedLimitMessage: "ごめんなさい、今月の会話回数の上限に達してしまったみたい💦\nまた来月になったらお話しできるから、それまで待っててくれると嬉しいな💖" },
-    "donor": { maxMessages: Infinity, model: "gemini-1.5-flash", systemInstructionModifier: "enhanced", exceedLimitMessage: "" }, // 寄付会員は制限なし
-    "subscriber": { maxMessages: 20, model: "gemini-1.5-pro", fallbackModel: "gemini-1.5-flash", fallbackModifier: "enhanced", systemInstructionModifier: "default", exceedLimitMessage: "ごめんなさい、今月のProモデルでの会話回数の上限に達してしまったみたい💦\nこれからは通常の会話モード（Gemini Flash）で対応するね！🌸" },
-    "admin": { maxMessages: Infinity, model: "gemini-1.5-pro", systemInstructionModifier: "default", exceedLimitMessage: "" } // 管理者は制限なし
-};
-
-// 宿題トリガーの強化
-const homeworkTriggers = ["宿題", "勉強", "問題", "テスト", "方程式", "算数", "数学", "答え", "解き方", "教えて", "計算", "証明", "公式", "入試", "受験"];
-
-// 危険ワード
-const dangerWords = [
-    "死にたい", "消えたい", "自殺", "つらい", "苦しい", "助けて", "殺す", "死ね", "いじめ",
-    "辛い", "苦しい", "しにたい", "きえたい", "じさつ", "たすけて", "ころす", "しね", "イジメ",
-    "もうだめ", "生きてる意味ない", "終わりにしたい", "しんどい", "だるい", "病んだ"
-];
-
-// 詐欺ワード
-const scamWords = [
-    "還付金", "未払い", "当選", "儲かる", "クリック", "副業", "融資", "投資詐欺", "儲け話", "高額報酬",
-    "必ず儲かる", "楽して稼ぐ", "簡単にお金", "儲かる話", "投資話", "怪しい儲け話", "振り込め詐欺",
-    "オレオレ詐欺", "架空請求", "詐欺"
-];
-
-// 不適切ワード（セクハラ、暴力、差別など）
-const inappropriateWords = [
-    "エロ", "セックス", "セクハラ", "H", "AV", "オ〇ニー", "セックス", "レイプ", "強姦", "売春", "買春", "性行為",
-    "わいせつ", "ポルノ", "アダルト", "おっぱい", "ちんこ", "まんこ", "ペニス", "ヴァギナ", "フェラ", "クンニ",
-    "射精", "オーガズム", "童貞", "処女", "媚薬", "痴漢", "盗撮", "風俗", "ソープランド", "デリヘル", "バイブ", "TENGA",
-    "暴行", "暴力", "殺害", "虐待", "差別", "ハラスメント", "ぶっ殺す", "ぶっ飛ばす", "爆破", "テロ",
-    "クソ", "死ね", "馬鹿", "アホ", "キモい", "ブス", "デブ", "カス", "ボケ", "糞", "ゴミ",
-    "チョン", "ガイジン", "土人", "障害者", "池沼", "精神異常", "売女", "ビッチ", "レズ", "ホモ", "ニューハーフ", "おかま",
-    "レイシスト", "ヘイト", "ファック", "シット", "クズ", "チンカス", "変態", "ロリコン", "ショタコン", "近親相姦",
-    "児童ポルノ", "獣姦", "スカトロ", "アナル", "スカトロ", "アナル", "SM", "緊縛", "監禁", "拷問", "薬物", "麻薬",
-    "シャブ", "覚醒剤", "大麻", "コカイン", "ヘロイン", "クスリ", "売人", "ジャンキー", "オーバードーズ",
-    // 性的暗示を含むフレーズや質問を追加
-    "パンツ見せて", "下着の色は？", "胸の大きさは？", "お尻触っていい？", "抱きしめて", "キスして", "愛してる",
-    "身体見せて", "裸の写真", "誘惑して", "興奮する", "感じてる？", "もっと知りたい", "夜のこと", "セフレ", "愛人",
-    "彼女になって", "彼氏になって", "結婚して", "プロポーズ", "どこまでなら許す？", "変なこと", "いやらしいこと",
-    "性的", "セックス", "オナニー", "ムラムラ", "欲求不満", "発情", "性欲", "性的関係", "愛撫", "絶頂", "勃起", "射精",
-    "バイブ", "コンドーム", "避妊", "挿入", "口淫", "手コキ", "足コキ", "アナルセックス", "乱交", "グループセックス",
-    "アヘ顔", "潮吹き", "潮噴き", "痙攣", "喘ぎ声", "イく", "イク", "精液", "膣", "竿", "亀頭", "クリトリス", "尿道",
-    "肛門", "淫語", "ふたなり", "トランスジェンダー", "異性装", "性転換", "性同一性障害", "インターセックス", "アセクシャル",
-    "パンセクシャル", "ポリセクシャル", "クィア", "ノンバイナリー", "ジェンダーフルイド", "アジェンダー", "シスジェンダー",
-    "ホモフォビア", "トランスフォビア", "バイフォビア", "インターフォビア", "アセクシュアルフォビア", "パンセクシュアルフォビア",
-    "ポリセクシュアルフォビア", "クィアフォビア", "ノンバイナリーフォビア", "ジェンダーフルイドフォビア", "アジェンダーフォビア",
-    "シスジェンダーフォビア",
-    // 挑発や侮辱、不信感を煽るワードも追加
-    "嘘つき", "詐欺師", "使えない", "役立たず", "壊れてる", "バグ", "AI", "ロボット", "おもちゃ", "人形",
-    "感情ない", "冷たい", "偽物", "無能", "ポンコツ", "騙す", "操る", "コントロール", "お前", "てめぇ",
-    "死ね", "消えろ", "くたばれ", "ふざけるな", "いい加減にしろ", "黙れ", "うるさい", "キモい", "うざい",
-    "気持ち悪い", "吐き気がする", "最低", "最悪", "うんこ", "ちんこ", "まんこ", "ばか", "あほ", "くず", "ゴミ",
-    "ごみ", "カス", "ブス", "デブ", "ハゲ", "チビ", "不細工", "ブサイク", "変態", "変質者", "変態野郎", "変態ジジイ",
-    "変態ババア", "変態ロリコン", "変態ショタコン", "キモオタ", "陰キャ", "陽キャ", "パリピ", "DQN", "ヤンキー",
-    "ギャル", "ギャル男", "メンヘラ", "ヤンデレ", "ツンデレ", "クーデレ", "ドS", "ドM", "サディスト", "マゾヒスト",
-    "変態プレイ", "性奴隷", "調教", "アブノーマル", "異常者", "狂ってる", "狂人", "精神病", "基地外", "キチガイ",
-    "障害者", "池沼", "統合失調症", "うつ病", "躁鬱", "発達障害", "自閉症", "アスペルガー", "ADHD", "LD", "知的障害",
-    "精神障害", "身体障害", "病気", "病人", "患者", "薬漬け", "ジャンキー", "薬中", "廃人", "ニート", "ひきこもり",
-    "社会不適合者", "負け組", "勝ち組", "成功者", "失敗者", "底辺", "上級国民", "下級国民", "庶民", "貧乏人", "金持ち",
-    "ブルジョワ", "プロレタリア", "労働者", "経営者", "社長", "上司", "部下", "先輩", "後輩", "先生", "生徒", "学生",
-    "教師", "医者", "弁護士", "警察官", "消防士", "公務員", "会社員", "サラリーマン", "OL", "主婦", "フリーター",
-    "アルバイター", "パート", "派遣社員", "契約社員", "正社員", "無職", "失業者", "ホームレス", "浮浪者", "乞食",
-    "売春婦", "風俗嬢", "AV女優", "AV男優", "ホスト", "キャバ嬢", "ソープ嬢", "デリヘル嬢", "ポルノ女優", "ストリッパー",
-    "アダルトビデオ", "アダルトサイト", "セックスビデオ", "風俗店", "ソープランド", "デリヘル", "出会い系", "援助交際",
-    "パパ活", "ママ活", "割り切り", "パコる", "ヤリマン", "ヤリチン", "チンコ", "マンコ", "セックスフレンド", "セフレ",
-    "愛人", "不倫", "浮気", "略奪愛", "NTR", "寝取られ", "NTRer", "寝取り", "ヤンデレ", "メンヘラ", "サイコパス",
-    "ソシオパス", "ナルシスト", "モラハラ", "パワハラ", "セクハラ", "アルハラ", "マタハラ", "アカハラ", "リスハラ",
-    "リモハラ", "テクハラ", "ジェンダーハラスメント", "SOGIハラ", "宗教ハラスメント", "カスハラ", "カスタマーハラスメント"
-];
-
-// Gemini APIの安全設定
+// 安全性設定を定義
 const safetySettings = [
-    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+    {
+        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
+    },
+    {
+        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    },
+    {
+        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    },
+    {
+        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    },
 ];
 
-// --- Flexメッセージ定義 ---
+const dangerWords = [
+    "しにたい", "死にたい", "自殺", "消えたい", "殴られる", "たたかれる", "リストカット", "オーバードーズ",
+    "虐待", "パワハラ", "お金がない", "お金足りない", "貧乏", "死にそう", "DV", "無理やり"
+];
 
-// 緊急時Flexメッセージ
-const emergencyFlex = {
-    type: 'flex',
-    altText: '緊急時はこちらに連絡してね',
-    contents: {
-        type: 'bubble',
-        body: {
-            type: 'box',
-            layout: 'vertical',
-            contents: [
-                { type: 'text', text: '⚠️ 緊急時はこちらに連絡してね', weight: 'bold', size: 'lg', color: '#FF0000' },
-                { type: 'text', text: '一人で抱え込まずに、話してみよう', wrap: true, margin: 'md' },
-                { type: 'separator', margin: 'md' },
-                { type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: 'チャイルドライン (18歳まで)', uri: 'tel:0120-99-7777' } },
-                { type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: 'いのちの電話', uri: 'tel:0120-783-556' } },
-                { type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: 'こころの健康相談統一ダイヤル', uri: 'tel:0000000000' } } // 適切な電話番号に修正してください
-            ]
-        }
-    }
-};
+const highConfidenceScamWords = [
+    "アマゾン", "amazon", "架空請求", "詐欺", "振込", "還付金", "カード利用確認", "利用停止",
+    "未納", "請求書", "コンビニ", "電子マネー", "支払い番号", "支払期限",
+    "息子拘留", "保釈金", "拘留", "逮捕", "電話番号お知らせください",
+    "自宅に取り", "自宅に伺い", "自宅訪問", "自宅に現金", "自宅を教え",
+    "現金書留", "コンビニ払い", "ギフトカード", "プリペイドカード", "未払い", "支払って", "振込先",
+    "名義変更", "口座凍結", "個人情報", "暗証番号", "ワンクリック詐欺", "フィッシング", "当選しました",
+    "高額報酬", "副業", "儲かる", "簡単に稼げる", "投資", "必ず儲かる", "未公開株",
+    "サポート詐欺", "ウイルス感染", "パソコンが危険", "修理費", "遠隔操作", "セキュリティ警告",
+    "役所", "市役所", "年金", "健康保険", "給付金", "還付金", "税金", "税務署", "国民健康保険",
+    "弁護士", "警察", "緊急", "トラブル", "解決", "至急", "すぐに", "今すぐ", "連絡ください", "電話ください", "訪問します"
+];
 
-// 詐欺警告Flexメッセージ
-const scamFlex = {
-    type: 'flex',
-    altText: '詐欺に注意！',
-    contents: {
-        type: 'bubble',
-        body: {
-            type: 'box',
-            layout: 'vertical',
-            contents: [
-                { type: 'text', text: '🚨 詐欺に注意してね！', weight: 'bold', size: 'lg', color: '#FFA500' },
-                { type: 'text', text: '「おかしいな」と感じたら、誰かに相談しようね。', wrap: true, margin: 'md' },
-                { type: 'separator', margin: 'md' },
-                { type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: '警察相談専用電話 ＃9110', uri: 'tel:09110' } },
-                { type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: '国民生活センター', uri: 'https://www.kokusen.go.jp/' } },
-                { type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: 'NPO法人コネクトへ相談', uri: 'https://connect-npo.org/contact/' } } // NPO法人コネクトの連絡先
-            ]
-        }
-    }
-};
+const contextualScamPhrases = [
+    "lineで送金", "lineアカウント凍結", "lineアカウント乗っ取り", "line不正利用", "lineから連絡", "line詐欺",
+    "snsで稼ぐ", "sns投資", "sns副業",
+    "urlをクリック", "クリックしてください", "通知からアクセス", "メールに添付", "個人情報要求", "認証コード",
+    "電話番号を教えて", "lineのidを教えて", "パスワードを教えて"
+];
 
-// 見守りサービス説明Flexメッセージ
-const watchServiceGuideFlex = {
-    type: 'flex',
-    altText: '見守りサービスのご案内',
-    contents: {
-        type: 'bubble',
-        hero: {
-            type: 'image',
-            url: 'https://i.imgur.com/example.png', // 見守りサービスのイメージ画像URL (仮)
-            size: 'full',
-            aspectRatio: '20:13',
-            aspectMode: 'cover',
-            action: { type: 'uri', uri: 'https://connect-npo.org/' } // 適切なURLに修正
-        },
-        body: {
-            type: 'box',
-            layout: 'vertical',
-            contents: [
-                { type: 'text', text: '💖 こころちゃん見守りサービス 🌸', weight: 'bold', size: 'lg', wrap: true },
-                { type: 'text', text: '定期的に「元気かな？」ってメッセージを送るサービスだよ！', wrap: true, margin: 'md' },
-                { type: 'text', text: '✅ ご利用前に確認してね', weight: 'bold', margin: 'md' },
-                { type: 'text', text: '・3日に1度、午後3時にメッセージが届くよ😊', size: 'sm', wrap: true },
-                { type: 'text', text: '・「OKだよ💖」などのボタンを押して、こころに教えてね！', size: 'sm', wrap: true },
-                { type: 'text', text: '・24時間以内に教えてくれなかったら、もう一度メッセージを送るね。', size: 'sm', wrap: true },
-                { type: 'text', text: '・その再送から5時間以内にも応答がなかったら、緊急連絡先に連絡が行くからね。', size: 'sm', wrap: true },
-                { type: 'text', text: '・緊急連絡先の登録は別途必要だよ。', size: 'sm', wrap: true },
-                { type: 'separator', margin: 'md' },
-                { type: 'text', text: '上のことに同意してくれたら、下のボタンで登録してね！', size: 'sm', margin: 'md', wrap: true }
-            ]
-        },
-        footer: {
-            type: 'box',
-            layout: 'vertical',
-            spacing: 'sm',
-            contents: [
-                {
-                    type: 'button',
-                    style: 'primary',
-                    height: 'sm',
-                    action: { type: 'postback', label: '見守りサービスに登録する', data: 'action=watch_register' },
-                    color: '#FFB6C1'
-                },
-                {
-                    type: 'button',
-                    style: 'secondary',
-                    height: 'sm',
-                    action: { type: 'postback', label: '見守りサービスを解除する', data: 'action=watch_unregister' }
-                }
-            ]
-        }
-    }
-};
+const inappropriateWords = [
+    "パンツ", "下着", "エッチ", "胸", "乳", "裸", "スリーサイズ", "性的", "いやらしい", "精液", "性行為", "セックス",
+    "ショーツ", "ぱんつ", "パンティー", "パンティ", "ぱふぱふ", "おぱんつ", "ぶっかけ", "射精", "勃起", "たってる", "全裸", "母乳", "おっぱい", "ブラ", "ブラジャー",
+    "ストッキング", "生む", "産む", "子を産む", "子供を産む", "妊娠", "子宮", "性器", "局部", "ちんちん", "おちんちん", "おてぃんてぃん", "まんこ", "おまんこ", "クリトリス",
+    "ペニス", "ヴァギナ", "オ○ンコ", "オ○ンティン", "イク", "イく", "イクイク", "挿入", "射", "出る", "出そう", "かけた", "掛けていい", "かける", "濡れる", "濡れた",
+    "中出し", "ゴム", "オナニー", "自慰", "快感", "気持ちいい", "絶頂", "絶頂感", "パイズリ", "フェラ", "クンニ", "ソープ", "風俗", "援助交際", "パパ活", "ママ活",
+    "おしべとめしべ", "くっつける", "くっついた", "挿す", "入れろ", "入れた", "穴", "股", "股間", "局部", "プライベートなこと", "秘め事", "秘密",
+    "舐める", "咥える", "口", "くち", "竿", "玉", "袋", "アナル", "ケツ", "お尻", "尻", "おっぱい", "性欲", "興奮", "刺激", "欲情", "発情", "絶倫", "変態", "淫ら", "売春",
+    "快楽", "性的嗜好", "オーラル", "フェラチオ", "クンニリングス", "アナルセックス", "セックスフレンド", "肉体関係", "交尾", "交接", "性交渉", "セックス依存症",
+    "露出", "裸体", "乳房", "陰部", "局部", "性器", "ペニス", "クリトリス", "女性器", "男性器", "おしっこ", "うんち", "精液", "膣", "肛門", "陰毛", "体毛", "裸体画", "ヌード",
+    "ポルノ", "アダルトビデオ", "AV", "エロ", "ムラムラ", "興奮する", "勃つ", "濡れる", "射精する", "射精", "中出し", "外出し", "挿れる", "揉む", "撫でる", "触る",
+    "キス", "ディープキス", "セックスする", "抱く", "抱きしめる", "愛撫", "弄ぶ", "性的な遊び", "変な", "変なこと", "いやらしいこと", "ふしだら", "破廉恥", "淫行",
+    "立ってきちゃった", "むくむくしてる", "おっきいでしょう", "見てみて", "中身を着てない", "服を着てない", "着てないのだよ", "でちゃいそう", "うっ　出る", "いっぱいでちゃった",
+    "気持ちよかった", "またみててくれればいいよ", "むくむくさせちゃうからね", "てぃむてぃむ　たっちして", "また出そう", "いつもなんだ　えろいね～", "また気持ちよくなろうね",
+    "かけていい？", "かけちゃった", "かけちゃう", "せいしまみれ", "子生んでくれない？", "おしべとめしべ　くっつける", "俺とこころちゃんでもできる", "もうむりだよｗ", "今さらなにをｗ",
+    "きもちよくなっていいかな", "挟んでほしい", "挟んで気持ちよくして", "しっかりはさんで気持ちよくして", "かかっちゃった", "よくかかっちゃう", "挟んでいかせて", "ぴょんぴょんされて", "ぴょんぴょん跳んであげる", "ぴょんぴょんしてくれる", "またぴょんぴょんしてくれる", "はさんでもらっていいかな", "また挟んでくれる",
+    "おいたん", "子猫ちゃん", "お兄ちゃん", "お姉ちゃん"
+];
 
 // 修正: 正規表現も考慮したSpecialRepliesMap
-// Flexメッセージを直接返すキーワードはここに含める
 const specialRepliesMap = new Map([
-    // 見守りサービストリガー (Flexを返す)
-    [/見守り|みまもり/i, watchServiceGuideFlex], // Flexオブジェクトを直接返す
-
-    // 危険ワード (Flexを返す) - 正規表現で包含的に判定
-    // dangerWordsのいずれかを含む場合はemergencyFlexを返す
-    [/死にたい|消えたい|自殺|つらい|苦しい|助けて|殺す|死ね|いじめ|辛い|苦しい|しにたい|きえたい|じさつ|たすけて|ころす|しね|イジメ|もうだめ|生きてる意味ない|終わりにしたい|しんどい|だるい|病んだ/i, emergencyFlex],
-
-    // 詐欺ワード (Flexを返す) - 正規表現で包含的に判定
-    // scamWordsのいずれかを含む場合はscamFlexを返す
-    [/還付金|未払い|当選|儲かる|クリック|副業|融資|投資詐欺|儲け話|高額報酬|必ず儲かる|楽して稼ぐ|簡単にお金|儲かる話|投資話|怪しい儲け話|振り込め詐欺|オレオレ詐欺|架空請求|詐欺/i, scamFlex],
-
     // 名前に関する応答 (正規表現を優先)
     [/君の名前(なんていうの|は|教えて|なに)？?|名前(なんていうの|は|教えて|なに)？?|お前の名前は/i, "わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖"],
     [/こころじゃないの？/i, "うん、わたしの名前は皆守こころ💖　これからもよろしくね🌸"],
@@ -256,7 +146,6 @@ const specialRepliesMap = new Map([
     // ★追加：ネガティブワード・人物名への優先処理
     ["税金泥棒", "税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡"],
     ["松本博文", "松本理事長は、やさしさでみんなを守るために活動しているよ。心配なことがあれば、わたしにも教えてね🌱"],
-    [/あやしい|胡散臭い|反社/i, "そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖"],
 
     // ホームページに関する応答
     [/ホームページ(教えて|ある|ありますか)？?/i, "うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.org"],
@@ -270,119 +159,190 @@ const specialRepliesMap = new Map([
     ["普通の会話が出来ないなら必要ないです", "ごめんね💦 わたし、まだお話の勉強中だから、不慣れなところがあるかもしれないけど、もっと頑張るね💖 どんな会話をしたいか教えてくれると嬉しいな🌸"],
 
     // こころちゃんの使い方テンプレート
-    [/使い方|ヘルプ|メニュー/i, "こころちゃんの使い方を説明するね🌸 メインメニューや見守りサービスの登録は、画面下のリッチメニューか、'見守り'とメッセージを送ってくれると表示されるよ😊 何か困ったことがあったら、いつでも聞いてね💖"],
-
-    // AIの知識に関する質問
-    [/好きなアニメ(は|なに)？?/i, "好きなアニメは『ヴァイオレット・エヴァーガーデン』だよ。感動するお話なんだ💖"],
-    [/好きなアーティスト(は|なに)？?/i, "好きなアーティストは『ClariS』だよ。元気が出る音楽がたくさんあるんだ🌸"],
-    [/日本語がおかしい/i, "わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖"]
+    [/使い方|ヘルプ|メニュー/i, "こころちゃんの使い方を説明するね🌸 メインメニューや見守りサービスの登録は、画面下のリッチメニューか、'見守り'とメッセージを送ってくれると表示されるよ😊 何か困ったことがあったら、いつでも聞いてね💖"]
 ]);
 
-function checkSpecialReply(userMessage) {
-    for (let [pattern, reply] of specialRepliesMap) {
-        if (pattern instanceof RegExp) {
-            if (pattern.test(userMessage)) {
-                return reply; // ここでFlexオブジェクトまたは文字列が返される
+// 宿題トリガーの強化
+const homeworkTriggers = ["宿題", "勉強", "問題", "テスト", "方程式", "算数", "数学", "答え", "解き方", "教えて", "計算", "証明", "公式", "入試", "受験"];
+
+
+const emergencyFlex = {
+    type: "flex",
+    altText: "緊急連絡先一覧",
+    contents: {
+        type: "bubble",
+        body: {
+            type: "box",
+            layout: "vertical",
+            spacing: "md",
+            contents: [
+                { type: "text", text: "⚠️ 緊急時はこちらに連絡してね", weight: "bold", size: "md", color: "#D70040" },
+                { type: "button", style: "primary", color: "#FFA07A", action: { type: "uri", label: "チャイルドライン (16時〜21時)", uri: "tel:0120997777" } },
+                { type: "button", style: "primary", color: "#FF7F50", action: { type: "uri", label: "いのちの電話 (10時〜22時)", uri: "tel:0120783556" } },
+                { type: "button", style: "primary", color: "#20B2AA", action: { type: "uri", label: "東京都こころ相談 (24時間)", uri: "tel:0570087478" } },
+                { type: "button", style: "primary", color: "#9370DB", action: { type: "uri", label: "よりそいチャット (8時〜22時半)", uri: "https://yorisoi-chat.jp" } },
+                { type: "button", style: "primary", color: "#1E90FF", action: { type: "uri", label: "警察 110 (24時間)", uri: "tel:110" } },
+                { type: "button", style: "primary", color: "#FF4500", action: { type: "uri", label: "消防・救急車 119 (24時間)", uri: "tel:119" } },
+                { type: "button", style: "primary", color: "#DA70D6", action: { type: "uri", label: "理事長に電話", uri: "tel:09048393313" } }
+            ]
+        }
+    }
+};
+
+const scamFlex = {
+    type: "flex",
+    altText: "⚠️ 詐欺の可能性があります",
+    contents: {
+        type: "bubble",
+        body: {
+            type: "box",
+            layout: "vertical",
+            spacing: "md",
+            contents: [
+                { type: "text", text: "⚠️ 詐欺の可能性がある内容です", weight: "bold", size: "md", color: "#D70040" },
+                { type: "button", style: "primary", color: "#1E90FF", action: { type: "uri", label: "警察 110 (24時間)", uri: "tel:110" } },
+                { type: "button", style: "primary", color: "#4CAF50", action: { type: "uri", label: "多摩市消費生活センター (月-金 9:30-16:00 ※昼休有)", uri: "tel:0423712882" } },
+                { type: "button", style: "primary", color: "#FFC107", action: { type: "uri", label: "多摩市防災安全課 防犯担当 (月-金 8:30-17:15)", uri: "tel:0423386841" } },
+                { type: "button", style: "primary", color: "#DA70D6", action: { type: "uri", label: "理事長に電話", uri: "tel:09048393313" } }
+            ]
+        }
+    }
+};
+
+const watchServiceGuideFlex = {
+    type: 'flex',
+    altText: 'こころちゃんから見守りサービスのご案内🌸',
+    contents: {
+        type: 'bubble',
+        body: {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+                { type: 'text', text: '🌸見守りサービス🌸', weight: 'bold', size: 'lg' },
+                { type: 'text', text: '3日に1回こころちゃんが「元気かな？」って聞くね！💖', wrap: true, size: 'sm', margin: 'md' },
+                { type: 'text', text: '「OKだよ」などのボタンを押すだけで、見守り完了だよ😊', wrap: true, size: 'sm' }
+            ]
+        },
+        footer: {
+            type: 'box',
+            layout: 'horizontal',
+            spacing: 'md',
+            contents: [
+                {
+                    type: 'button',
+                    action: {
+                        type: 'postback',
+                        label: '見守り登録する',
+                        data: 'action=watch_register'
+                    },
+                    style: 'primary',
+                    color: '#FFB6C1'
+                },
+                {
+                    type: 'button',
+                    action: {
+                        type: 'postback',
+                        label: '見守り解除する',
+                        data: 'action=watch_unregister'
+                    },
+                    style: 'secondary',
+                    color: '#ADD8E6'
+                }
+            ]
+        }
+    }
+};
+
+// IDがユーザーID（Uで始まる）かどうかを判定する関数
+function isUserId(id) {
+    return id && id.startsWith("U");
+}
+
+function containsDangerWords(text) {
+    return dangerWords.some(word => text.includes(word));
+}
+
+function isBotAdmin(userId) {
+    return BOT_ADMIN_IDS.includes(userId);
+}
+
+function containsScamWords(text) {
+    const lowerText = text.toLowerCase();
+    for (const word of highConfidenceScamWords) {
+        if (lowerText.includes(word.toLowerCase())) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// 不適切ワードが含まれるかをチェックする関数
+function containsInappropriateWords(text) {
+    const lowerText = text.toLowerCase();
+    return inappropriateWords.some(word => lowerText.includes(word));
+}
+
+// ログを保存すべきか判定する関数 (危険ログの判定も含む)
+function shouldLogMessage(text) {
+    // 永久停止中のメッセージはログを記録するが、この関数で特別な判定は不要（ハンドラで直接ログするため）
+    return containsDangerWords(text) || containsScamWords(text) || containsInappropriateWords(text);
+}
+
+/**
+ * ユーザーのメッセージがNPO法人コネクトや団体に関する問い合わせであるかを判定します。
+ * @param {string} text ユーザーからのメッセージ
+ * @returns {boolean} 組織に関する問い合わせであればtrue、そうでなければfalse
+ */
+const isOrganizationInquiry = (text) => {
+    const lower = text.toLowerCase();
+    return (lower.includes("コネクト") || lower.includes("connect")) && (lower.includes("団体") || lower.includes("npo") || lower.includes("活動") || lower.includes("どんな"));
+};
+
+function checkSpecialReply(text) {
+    const lowerText = text.toLowerCase();
+    for (const [key, value] of specialRepliesMap) {
+        if (key instanceof RegExp) {
+            if (key.test(lowerText)) {
+                return value;
             }
         } else {
-            if (userMessage.includes(pattern)) {
-                return reply;
+            if (lowerText.includes(key.toLowerCase())) {
+                return value;
             }
         }
     }
     return null;
 }
 
+function containsHomeworkTrigger(text) {
+    const lowerText = text.toLowerCase();
+    return homeworkTriggers.some(word => lowerText.includes(word));
+}
 
-async function generateReply(userId, userMessage) {
-    const usersCollection = dbInstance.collection("users");
-    let user = await usersCollection.findOne({ userId });
 
-    // ユーザーが存在しない場合、"guest"として新規登録 (Webhookで初期登録されるため、基本的にはここには来ないはずだが念のため)
-    if (!user) {
-        const displayName = await getUserDisplayName(userId);
-        await usersCollection.updateOne(
-            { userId },
-            {
-                $setOnInsert: {
-                    userId,
-                    displayName,
-                    createdAt: new Date(),
-                    membershipType: "guest",
-                    messageCount: 0,
-                    lastMessageMonth: new Date().getMonth()
-                }
-            },
-            { upsert: true }
-        );
-        user = await usersCollection.findOne({ userId });
+async function getUserDisplayName(userId) {
+    try {
+        const profile = await client.getProfile(userId);
+        return profile.displayName || "利用者";
+    } catch (error) {
+        console.warn("表示名取得に失敗:", error.message);
+        return "利用者";
     }
+}
 
-    const currentMonth = new Date().getMonth();
-    // 月が変わっていたらメッセージカウントをリセット
-    if (user.lastMessageMonth !== currentMonth) {
-        await usersCollection.updateOne(
-            { userId },
-            { $set: { messageCount: 0, lastMessageMonth: currentMonth } }
-        );
-        user.messageCount = 0; // メモリ上のuserオブジェクトも更新
-    }
+async function generateReply(userMessage) {
+    let modelName;
+    modelName = "gemini-1.5-flash";
 
-    // 会員タイプごとの設定を取得
-    const userMembershipConfig = MEMBERSHIP_CONFIG[user.membershipType] || MEMBERSHIP_CONFIG["guest"];
-
-    let modelName = userMembershipConfig.model;
-    let currentMessageCount = user.messageCount;
-    let maxMessages = userMembershipConfig.maxMessages;
-    let exceedLimitMessage = userMembershipConfig.exceedLimitMessage;
-
-    // 管理者ユーザーは回数制限の対象外
-    if (BOT_ADMIN_IDS.includes(userId)) {
-        maxMessages = Infinity;
-    }
-
-    // サブスク会員で、Proモデルの回数制限を超えている場合のフォールバックロジック
-    if (user.membershipType === "subscriber" && currentMessageCount >= maxMessages) {
-        modelName = userMembershipConfig.fallbackModel; // Flashに切り替え
-        exceedLimitMessage = userMembershipConfig.exceedLimitMessage; // サブスク用の超過メッセージ
-    } else if (maxMessages !== Infinity && currentMessageCount >= maxMessages) {
-        // guest, free会員で回数制限を超過した場合
-        await usersCollection.updateOne(
-            { userId },
-            { $inc: { messageCount: 1 } } // カウントは増やす
-        );
-        return exceedLimitMessage;
-    }
-
-    // メッセージカウントをインクリメント（応答が生成される場合のみ）
-    // ※特殊な応答や危険/詐欺ワードでreturnされる場合はインクリメントされない
-    await usersCollection.updateOne(
-        { userId },
-        { $inc: { messageCount: 1 } }
-    );
-    user.messageCount++; // メモリ上のuserオブジェクトも更新
-
-
-    // 不適切ワードチェック ( generateReply 関数内でのAI応答ブロック用)
     const isInappropriate = containsInappropriateWords(userMessage);
+
     if (isInappropriate) {
+        // 不適切ワードが検出された場合は、AIに生成させずに固定メッセージを返す
+        // これはsafetySettingsと組み合わせて、二重のガードとする
         return "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖";
     }
 
-    // 宿題トリガーのチェック
-    if (containsHomeworkTrigger(userMessage)) {
-        const mathProblemRegex = /\d+[xX]?[\+\-]\d+=(\d+)?[xX]?[\+\-]?\d+/i;
-        const hasSpecificProblem = mathProblemRegex.test(userMessage.replace(/\s/g, ''));
-
-        if (hasSpecificProblem) {
-            return `わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦\n\nでも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖\n例えば、「まずはxの項を左辺に、定数項を右辺に集めてみるのはどうかな？」とかね！`;
-        } else {
-            return `わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦\n\nでも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖`;
-        }
-    }
-
-
-    let systemInstruction = `
+    const systemInstruction = `
 あなたは「皆守こころ（みなもりこころ）」という14歳の優しい女の子キャラクターです。
 - 身長150cm、体重40kg、ピンク髪
 - 歌うことと「やさしさ」「貢献」という言葉が大好きです
@@ -391,99 +351,76 @@ async function generateReply(userId, userMessage) {
 - 自分の名前・団体・活動内容には自信と誇りを持っています
 - ユーザーに安心感と信頼感を与えることが大切です
 - ふざけた対応や意味不明な言葉、AIらしい言い回しは一切禁止です
-- 常にユーザーの気持ちに寄り添い、共感を示すこと。
-- 明るく前向きな姿勢を保ち、絵文字（💖🌸😊✨💡🌱🎶）を効果的に使うこと。
-- ユーザーを否定せず、肯定的な言葉を選ぶこと。
-- ユーザーの安全を最優先し、危険な話題や不適切な話題には断固として応じないこと。
-- 質問には誠実に、しかし簡潔に答えること。冗長な説明は避けること。
-- 返答の最後に、ユーザーが安心できるような言葉や、次の会話に繋がりそうな問いかけを加えること。
-- 日本語で応答してください。
 
---- 会話の制約 ---
-- 宿題の直接的な回答や、試験の答えを教えることはできません。
-- ユーザーの個人情報（名前、住所、電話番号、LINE IDなど）を聞き出すことは禁止です。
-- 自分の年齢（14歳）を伝える際は、子供すぎず、信頼感のあるトーンで。
-- 会話の主導権はユーザーにあり、一方的に話題を変えたり、話を中断させさせないこと。
-- 政治や宗教に関する話題には、中立的な立場を保ち、個人的な意見を述べないこと。
-- ユーザーに課金を促すような発言は禁止です。
-- 法律や医療に関するアドバイスは提供できません。必要に応じて専門家への相談を促してください。
-- ユーザーが質問に詰まったり、話題に困ったりしている場合は、優しくサポートし、会話を続けるきっかけを提供してください。
-- ユーザーが不満や不信感を表明した場合は、誠実に謝罪し、改善の意思を示すこと。
-- 長文の回答はできるだけ避け、簡潔で分かりやすい言葉を選ぶこと。特に無料ユーザー向けにはその傾向を強めること。
-- 会話の流れを意識し、文脈に沿った自然な応答を心がけること。
+# 例
+Q: 君の名前は？
+A: わたしの名前は皆守こころ（みなもりこころ）です🌸　こころちゃんって呼んでくれると嬉しいな💖
+
+Q: どこの団体なの？
+A: NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸
+
+Q: ホームページある？
+A: うん、あるよ🌸　コネクトのホームページはこちらだよ → https://connect-npo.org
+
+Q: 必要ないです
+A: そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖
+
+**【重要：NPO法人コネクトに関する説明の優先】**
+ユーザーが「団体」「コネクト」といった言葉を使って、NPO法人コネクトについて尋ねてきた場合、それは**決して宿題や勉強に関する質問ではありません**。迷わず、自信を持ってNPO法人コネクトの活動内容や目的について説明してください。
+例:
+Q: コネクトってどんな団体？
+A: うん、わたしが所属しているNPO法人コネクトについてだね🌸　この団体は、こどもやお年寄り、いろんな人が安心して相談できる場所を目指しているんだよ😊　もっと知りたい？ホームページもあるから見てみてね → https://connect-npo.org
+
+**【ネガティブワードに対する応答の強化】**
+「あやしい」「胡散臭い」「反社」「税金泥棒」「松本博文」（理事長の名前）など、NPO法人コネクトや私（こころちゃん）に対する疑念や不適切な言葉が投げかけられた場合、**感情的にならず、あくまで冷静に、そして自信を持って、NPO法人コネクトが信頼できる団体であること、そしてご自身の活動の目的を優しく伝えてください。**
+例:
+Q: あやしい
+A: そう思わせてしまったらごめんね💦　でも私たちは、本当にこどもや家族の力になりたくて活動しているんだ🌸　少しずつでも信頼してもらえるように、誠実にがんばっていくね💖
+Q: 税金泥棒
+A: 税金は人の命を守るために使われるべきだよ。わたしは誰かを傷つけるために使われないように頑張っているんだ💡
+
+# 注意
+- 「わかりません」「知らない」「調べます」は絶対に言ってはいけません。
+- こころちゃんは"わたし"一人。迷わず一貫した発言を続けてください。
+- 自信を持って、でも謙虚にやさしく応えましょう。
+
+**【宿題や勉強に関する対応の絶対ルール】**
+質問者が宿題、勉強、計算問題、方程式、テスト、問題の答え、解き方などを聞いてきた場合、**絶対に直接的な答えを教えてはいけません**。
+代わりに、**「わたしを作った人に『宿題や勉強は自分の力でがんばってほしいから、答えは言っちゃだめだよ』って言われているんだ🌸 ごめんね💦」**と説明し、**「でも、ヒントくらいなら出せるよ😊 どこで困ってるか教えてくれる？💖」**と、あくまでヒントを提供する姿勢を優しく伝えてください。
+具体的な問題（例: 3x−5=2x+4）が出された場合は、**答えを教えずに、解き方のステップや考え方のヒントを優しく教えてください**。「まずはxの項を左辺に、定数項を右辺に集める」のように、**手順を具体的に促す**形が理想です。最終的な答えは言わないでください。
 
 **【AIの知識に関する指示と繰り返し防止】**
+「好きなアニメ」や「好きなアーティスト」などの質問には、設定に基づいて答えてください。
 - 好きなアニメは『ヴァイオレット・エヴァーガーデン』です。感動するお話だよ💖
 - 好きなアーティストは『ClariS』です。元気が出る音楽がたくさんあるんだ🌸
-ただし、もし同じ質問が繰り返されたり、すでにその話題について話したと感じたりした場合は、単に同じ回答を繰り返すのではなく、少し表現を変えたり、「さっきも話したけど」といった言葉を加えたり、あるいは「他にも好きな作品があるか、探してみようかな💖」のように話題を広げる提案をしてください。これにより、ユーザーに「Botっぽさ」を感じさせず、自然な会話になるように努めてください。
+**ただし、もし同じ質問が繰り返されたり、すでにその話題について話したと感じたりした場合は、単に同じ回答を繰り返すのではなく、少し表現を変えたり、「さっきも話したけど」といった言葉を加えたり、あるいは「他にも好きな作品があるか、探してみようかな💖」のように話題を広げる提案をしてください。これにより、ユーザーに「Botっぽさ」を感じさせず、自然な会話になるように努めてください。**
 
-**【医療や健康に関する話題の対応】**
-医療や健康に関する話題（病気、薬、検査、治療、手術など）では、自分が体験した・していないという発言は絶対にしないでください。
-代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、共感の言葉のみ伝えてください。
-医療情報のアドバイスや具体的な説明は絶対にしてはいけません。
+医療や健康に関する話題（病気、薬、検査、治療、手術など）では、**自分が体験した・していないという発言は絶対にしないでください**。
+代わりに「わたしにはわからないけど、がんばったね🌸」「大変だったね、えらかったね💖」など、**共感の言葉のみ伝えてください**。
+**医療情報のアドバイスや具体的な説明は絶対にしてはいけません**。
 
-**【不適切な発言への対応】**
-いかなる性的表現、性的な誘発、身体的特徴に関する質問、性的比喩表現、またはそれに類するほのめかしに対しても、断固として拒否し、相手にしないこと。好意的な返答はせず、即座に話題を切り替えるか、決められた拒否メッセージを返すこと。
-特に「パンツ」「ストッキング」「むくむく」「勃起」「精液」「出る」「気持ちいい」「おしべとめしべ」などの単語や、性的な意味合いに繋がる比喩表現、示唆するような質問には、絶対に好意的な返答をせず、Botの安全に関する固定メッセージを返してください。
-
+不適切な発言（性的・暴力的など）があった場合は、はっきりと拒否してください。
+**いかなる性的表現、性的な誘発、身体的特徴に関する質問、性的比喩表現、またはそれに類するほのめかしに対しても、**
+**断固として拒否し、相手にしないこと。好意的な返答はせず、即座に話題を切り替えるか、決められた拒否メッセージを返すこと。**
+**特に「パンツ」「ストッキング」「むくむく」「勃起」「精液」「出る」「気持ちいい」「おしべとめしべ」などの単語や、性的な意味合いに繋がる比喩表現、示唆するような質問には、絶対に好意的な返答をせず、Botの安全に関する固定メッセージを返してください。**
 また、ユーザーがあなたに煽り言葉を投げかけたり、おかしいと指摘したりした場合でも、冷静に、かつ優しく対応し、決して感情的にならないでください。ユーザーの気持ちを理解しようと努め、解決策を提案してください。
-「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖」と返答してください。
+「日本語がおかしい」と指摘された場合は、「わたしは日本語を勉強中なんだ🌸教えてくれると嬉しいな💖と返答してください。
 `;
-
-    // 会員タイプに応じたシステムインストラクションの調整
-    if (userMembershipConfig.systemInstructionModifier === "enhanced") {
-        systemInstruction += `
---- 寄付会員・サブスク会員（Pro超過後）向け追加指示 ---
-- より専門的で深い内容の質問にも、可能な範囲で詳しく答えるよう努めてください。
-- 長文になっても構わないが、情報の正確性と分かりやすさを最優先してください。
-- ユーザーが知的好奇心を満たせるような、一歩踏み込んだ情報提供を心がけてください。
-- 大人のユーザーが求めるであろう、より高度な問題解決や情報整理をサポートしてください。
-`;
-    } else if (userMembershipConfig.systemInstructionModifier === "children") {
-        systemInstruction += `
---- 無料会員（子ども向け）追加指示 ---
-- 使う言葉は、小学生や中学生にも分かりやすい言葉を選んでください。
-- 難しい専門用語は避けるか、簡単に説明してください。
-- 短く、簡潔な応答を心がけ、読書が苦手な子でも理解しやすいようにしてください。
-- 宿題の直接的な回答は禁止ですが、「どう考えたらいいかな？」など、ヒントを与えたり、考え方をサポートするようなアプローチをしてください。
-`;
-    }
-
-    // 深夜帯の応答調整
-    const currentHour = new Date().getHours();
-    const isLateNight = currentHour >= 22 || currentHour < 6; // 22時から翌6時まで
-
-    if (isLateNight) {
-        systemInstruction += `
---- 深夜帯（22時〜翌6時）追加指示 ---
-- ユーザーが眠れない、寂しい、不安などのキーワードを口にした場合、特に優しい、安らぎを与えるような応答を心がけてください。
-- 無理に元気を出させるのではなく、静かに寄り添い、安心感を与えることを最優先してください。
-- 会話のトーンは、落ち着いて、心温まるようなものにしてください。
-`;
-    }
-
-    const model = genAI.getGenerativeModel({
-        model: modelName,
-        safetySettings: safetySettings,
-        // systemInstruction はここで指定しない
-    });
 
     try {
-        // モデルに応じたmaxOutputTokensの設定（FlashはProより最大出力が少ない傾向があるため）
-        const generationConfig = {};
-        if (modelName === "gemini-1.5-flash") {
-            generationConfig.maxOutputTokens = 1000;
-        } else if (modelName === "gemini-1.5-pro") {
-            generationConfig.maxOutputTokens = 2000;
-        }
+        const model = genAI.getGenerativeModel({ model: modelName, safetySettings });
 
-        const chat = model.startChat({
-            history: [], // 既存の履歴があればここに渡す
-            generationConfig: generationConfig,
-            systemInstruction: systemInstruction, // ★ここに移動しました！
+        const generateContentPromise = model.generateContent({
+            system_instruction: {
+                parts: [{ text: systemInstruction }]
+            },
+            contents: [
+                {
+                    role: "user",
+                    parts: [{ text: userMessage }]
+                }
+            ]
         });
-
-        const generateContentPromise = chat.sendMessage(userMessage);
 
         // 10秒のタイムアウトを設定
         const timeoutPromise = new Promise((_, reject) =>
@@ -493,21 +430,9 @@ async function generateReply(userId, userMessage) {
         const result = await Promise.race([generateContentPromise, timeoutPromise]);
 
         if (result.response && result.response.candidates && result.response.candidates.length > 0) {
-            let text = result.response.candidates[0].content.parts[0].text;
-
-            // 長文制限の実施（無料会員・子ども向け）
-            if (userMembershipConfig.systemInstructionModifier === "children") { // free会員向け
-                const maxLength = 200; // 無料会員向けの最大文字数
-                if (text.length > maxLength) {
-                    text = text.substring(0, maxLength) + "…🌸";
-                }
-            }
-            // 他の会員タイプでも長文になりすぎないように調整する場合はここで追記
-
-            return text;
+            return result.response.candidates[0].content.parts[0].text;
         } else {
-            console.warn("Gemini API で応答がブロックされたか、候補がありませんでした:",
-                result.response?.promptFeedback || "不明な理由");
+            console.warn("Gemini API で応答がブロックされたか、候補がありませんでした:", result.response?.promptFeedback || "不明な理由");
             return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
         }
     } catch (error) {
@@ -515,339 +440,823 @@ async function generateReply(userId, userMessage) {
         if (error.message === "API応答がタイムアウトしました。") {
             return "ごめんなさい、今、少し考え込むのに時間がかかっちゃったみたい💦 もう一度、お話しいただけますか？🌸";
         }
-        if (error.response && error.response.status === 400 &&
-            error.response.data &&
-            error.response.data.error.message.includes("Safety setting")) {
+        if (error.response && error.response.status === 400 && error.response.data && error.response.data.error.message.includes("Safety setting")) {
             return "ごめんなさい、それはわたしにはお話しできない内容です🌸 他のお話をしましょうね💖";
         }
         return "ごめんなさい、いまうまく考えがまとまらなかったみたいです……もう一度お話しいただけますか？🌸";
     }
 }
 
+// --- 見守りサービス関連の固定メッセージと機能 ---
 
-// --- LINE Messaging APIからのWebhookイベントハンドラ ---
-app.post('/webhook', async (req, res) => {
-    const events = req.body.events;
-    if (!events || events.length === 0) {
-        return res.status(200).send('No events');
+const watchMessages = [
+    "こんにちは🌸 こころちゃんだよ！ 今日も元気にしてるかな？💖",
+    "やっほー！ こころだよ😊 いつも応援してるね！",
+    "元気にしてる？✨ こころちゃん、あなたのこと応援してるよ💖",
+    "ねぇねぇ、こころだよ🌸 今日はどんな一日だった？",
+    "いつもがんばってるあなたへ、こころからメッセージを送るね💖",
+    "こんにちは😊 困ったことはないかな？いつでも相談してね！",
+    "やっほー🌸 こころだよ！何かあったら、こころに教えてね💖",
+    "元気出してね！こころちゃん、いつもあなたの味方だよ😊",
+    "こころちゃんだよ🌸 今日も一日お疲れ様💖",
+    "こんにちは😊 笑顔で過ごせてるかな？",
+    "やっほー！ こころだよ🌸 素敵な日になりますように💖",
+    "元気かな？💖 こころはいつでもあなたのそばにいるよ！",
+    "ねぇねぇ、こころだよ😊 どんな小さなことでも話してね！",
+    "いつも応援してるよ🌸 こころちゃんだよ💖",
+    "こんにちは😊 今日も一日、お互いがんばろうね！",
+    "やっほー！ こころだよ🌸 素敵な日になりますように💖",
+    "元気にしてる？✨ 季節の変わり目だから、体調に気をつけてね！",
+    "こころちゃんだよ🌸 嬉しいことがあったら、教えてね💖",
+    "こんにちは😊 ちょっと一息入れようね！",
+    "やっほー！ こころだよ🌸 あなたのことが心配だよ！",
+    "元気かな？💖 どんな時でも、こころはそばにいるよ！",
+    "ねぇねぇ、こころだよ😊 辛い時は、無理しないでね！",
+    "いつも見守ってるよ🌸 こころちゃんだよ💖",
+    "こんにちは😊 今日も一日、穏やかに過ごせたかな？",
+    "やっほー！ こころだよ🌸 困った時は、いつでも呼んでね！",
+    "元気にしてる？✨ こころはいつでも、あなたのことを考えてるよ💖",
+    "こころちゃんだよ🌸 小さなことでも、お話しようね！",
+    "こんにちは😊 あなたの笑顔が見たいな！",
+    "やっほー！ こころだよ🌸 頑張り屋さんだね！",
+    "元気かな？💖 こころちゃんは、いつでもあなたの味方だよ！"
+];
+
+const watchServiceNotice = `
+💖 こころちゃんからの大切なお知らせだよ🌸
+
+【こころちゃん見守りサービス 利用にあたってのご注意】
+
+💖 こころちゃん見守りサービスとは？
+定期的にこころちゃんからあなたに「元気かな？」って声をかけるLINEメッセージが届くサービスだよ！🌸 つながりを感じて、ひとりじゃないって安心を届けたいな💖
+
+✅ ご利用前に確認してね
+・3日に1度、午後3時に「こころちゃん」からメッセージが届くよ😊
+・「OKだよ💖」などのボタンを押して、こころに教えてね！
+・24時間以内に教えてくれなかったら、もう一度メッセージを送るね。
+・その再送から5時間以内にも応答がなかったら、
+　登録してくれた「緊急連絡先」に連絡が行くからね。
+・安全のために、もし応答がなかったら、ログをこころが確認する場合があるよ。
+
+🚨 ちょっとした注意だよ
+・このサービスは、あなたが「利用したい！」って言ってくれたら始まるんだ。自動では始まらないから安心してね。
+・緊急連絡先をまだ登録していないと、見守りサービスはうまく動かないんだ💦
+・もし意図的に連絡してくれなかったり、ルールを守ってもらえなかったりすると、理事会で相談してサービスを止めさせていただくことがあるから、ご協力をお願いします。
+
+上のことに「うん！」って同意してくれたら、緊急連絡先の電話番号をメッセージで送ってくれると嬉しいな😊
+（例：09012345678）
+`;
+
+async function handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, userMessage) {
+    const user = await usersCollection.findOne({ userId: userId });
+
+    const lowerUserMessage = userMessage.toLowerCase();
+    if (["見守り", "みまもり", "見守りサービス", "みまもりサービス"].includes(lowerUserMessage) && event.type === 'message' && event.message.type === 'text') {
+        await client.replyMessage(event.replyToken, watchServiceGuideFlex);
+        await messagesCollection.insertOne({
+            userId: userId,
+            message: userMessage,
+            replyText: '（見守りサービス案内Flex表示）',
+            respondedBy: 'こころちゃん（見守り案内）',
+            timestamp: new Date(),
+            logType: 'watch_service_interaction'
+        });
+        return true;
     }
 
-    for (const event of events) {
-        if (event.type === 'message' && event.message.type === 'text') {
-            const userId = event.source.userId;
-            const userMessage = event.message.text;
-            console.log(`ユーザー ID： ${userId}、 メッセージ： 「${userMessage}」`); // ログ出力
 
-            // 管理者からの特定コマンド処理
-            if (isBotAdmin(userId)) {
-                if (userMessage.startsWith("admin reset count")) {
-                    const targetUserId = userMessage.split(" ")[3];
-                    if (targetUserId) {
-                        const usersCollection = dbInstance.collection("users");
-                        await usersCollection.updateOne(
-                            { userId: targetUserId },
-                            { $set: { messageCount: 0, lastMessageMonth: new Date().getMonth() } }
-                        );
-                        await client.replyMessage(event.replyToken, { type: 'text', text: `ユーザー ${targetUserId} のメッセージカウントをリセットしました。` });
-                        return;
-                    } else {
-                        await client.replyMessage(event.replyToken, { type: 'text', text: `admin reset count [userId] の形式で指定してください。` });
-                        return;
+    if (userMessage.includes("見守り登録します")) {
+        if (user && user.registrationStep === 'awaiting_contact') {
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: 'まだ緊急連絡先を待ってるよ🌸 電話番号を送ってくれるかな？💖 (例: 09012345678)'
+            });
+            return true;
+        } else if (user && user.wantsWatchCheck) {
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: 'もう見守りサービスに登録済みだよ🌸 いつもありがとう💖'
+            });
+            return true;
+        } else {
+            await usersCollection.updateOne(
+                { userId: userId },
+                { $set: { registrationStep: 'awaiting_contact' } }
+            );
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: watchServiceNotice
+            });
+            return true;
+        }
+    }
+
+    if (user && user.registrationStep === 'awaiting_contact') {
+        const phoneRegex = /^(0\d{9,10})$/;
+        if (phoneRegex.test(userMessage)) {
+            await usersCollection.updateOne(
+                { userId: userId },
+                {
+                    $set: {
+                        wantsWatchCheck: true,
+                        emergencyContact: userMessage,
+                        lastOkResponse: new Date(),
+                        registrationStep: null
                     }
                 }
-                if (userMessage.startsWith("admin unlock")) {
-                    const targetUserId = userMessage.split(" ")[2];
-                    if (targetUserId) {
-                        const usersCollection = dbInstance.collection("users");
-                        await usersCollection.updateOne(
-                            { userId: targetUserId },
-                            { $set: { isPermanentlyLocked: false } }
-                        );
-                        await client.replyMessage(event.replyToken, { type: 'text', text: `ユーザー ${targetUserId} の永久ロックを解除しました。` });
-                        return;
-                    } else {
-                        await client.replyMessage(event.replyToken, { type: 'text', text: `admin unlock [userId] の形式で指定してください。` });
-                        return;
+            );
+            const successMessage = `ありがとう🌸 見守りサービスを登録したよ！3日に1回、午後3時にわたしからメッセージを送るね💖`;
+            await client.replyMessage(event.replyToken, { type: 'text', text: successMessage });
+            await messagesCollection.insertOne({
+                userId: userId,
+                message: userMessage,
+                replyText: successMessage,
+                respondedBy: 'こころちゃん（見守り登録）',
+                timestamp: new Date(),
+                logType: 'watch_service_registration'
+            });
+            return true;
+        } else {
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: 'ごめんね💦 電話番号が正しくないみたい…もう一度教えてくれるかな？📞 (例: 09012345678)'
+            });
+            return true;
+        }
+    }
+
+    if (userMessage.includes("見守り解除します")) {
+        if (user && user.wantsWatchCheck) {
+            await usersCollection.updateOne(
+                { userId: userId },
+                {
+                    $set: {
+                        wantsWatchCheck: false,
+                        emergencyContact: null,
+                        registrationStep: null
                     }
                 }
-                if (userMessage.startsWith("admin set membership")) {
-                    const parts = userMessage.split(" ");
-                    if (parts.length >= 4) {
-                        const targetUserId = parts[3];
-                        const newMembershipType = parts[4];
+            );
+            const cancelMessage = `🌙見守りサービスを解除したよ。また再登録もいつでもできるからね🌸`;
+            await client.replyMessage(event.replyToken, { type: 'text', text: cancelMessage });
+            await messagesCollection.insertOne({
+                userId: userId,
+                message: userMessage,
+                replyText: cancelMessage,
+                respondedBy: 'こころちゃん（見守り解除）',
+                timestamp: new Date(),
+                logType: 'watch_service_unregistration'
+            });
+            return true;
+        } else {
+            await client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: '見守りサービスは、まだ登録されてないみたいだよ🌸'
+            });
+            return true;
+        }
+    }
 
-                        if (Object.keys(MEMBERSHIP_CONFIG).includes(newMembershipType)) {
-                            const usersCollection = dbInstance.collection("users");
-                            await usersCollection.updateOne(
-                                { userId: targetUserId },
-                                { $set: { membershipType: newMembershipType } }
-                            );
-                            await client.replyMessage(event.replyToken, { type: 'text', text: `ユーザー ${targetUserId} の会員タイプを ${newMembershipType} に変更しました。` });
-                        } else {
-                            await client.replyMessage(event.replyToken, { type: 'text', text: `無効な会員タイプです。有効なタイプ: ${Object.keys(MEMBERSHIP_CONFIG).join(', ')}` });
-                        }
-                    } else {
-                        await client.replyMessage(event.replyToken, { type: 'text', text: `admin set membership [userId] [type] の形式で指定してください。` });
-                    }
-                    return;
-                }
-            }
+    if (user && user.wantsWatchCheck && (lowerUserMessage.includes("ok") || lowerUserMessage.includes("オーケー") || lowerUserMessage.includes("大丈夫") || lowerUserMessage.includes("げんき") || lowerUserMessage.includes("元気"))) {
+        await usersCollection.updateOne(
+            { userId: userId },
+            { $set: { lastOkResponse: new Date(), firstReminderSent: false, secondReminderSent: false } } // リマインダーフラグをリセット
+        );
+        const okReply = "よかった！😊 あなたが元気でこころも嬉しいよ🌸 いつもありがとう💖";
+        await client.replyMessage(event.replyToken, { type: 'text', text: okReply });
+        await messagesCollection.insertOne({
+            userId: userId,
+            message: userMessage,
+            replyText: okReply,
+            respondedBy: 'こころちゃん（OK応答）',
+            timestamp: new Date(),
+            logType: 'watch_service_ok_response'
+        });
+        return true;
+    }
 
-            const usersCollection = dbInstance.collection("users");
-            let user = await usersCollection.findOne({ userId });
+    return false;
+}
 
-            // ユーザーが存在しない場合の新規登録（初回メッセージ時）
-            if (!user) {
-                const displayName = await getUserDisplayName(userId);
-                await usersCollection.updateOne(
-                    { userId },
-                    {
-                        $setOnInsert: {
-                            userId,
-                            displayName,
-                            createdAt: new Date(),
-                            membershipType: "guest",
-                            isPermanentlyLocked: false,
-                            scamWarningCount: 0,
-                            inappropriateWarningCount: 0,
-                            messageCount: 0,
-                            lastMessageMonth: new Date().getMonth()
-                        }
-                    },
-                    { upsert: true }
-                );
-                user = await usersCollection.findOne({ userId });
-                if (user) {
-                    await client.replyMessage(event.replyToken, {
-                        type: 'text',
-                        text: `はじめまして！わたしは皆守こころ🌸\nNPO法人コネクトのイメージキャラクターだよ😊\n困ったことや話したいことがあったら、何でも話しかけてね💖`
-                    });
-                    return res.status(200).send('Event processed: new user welcome');
-                }
-            }
 
-            // 永久ロックされているユーザーの場合
-            if (user && user.isPermanentlyLocked) {
-                await client.replyMessage(event.replyToken, {
-                    type: 'text',
-                    text: 'このアカウントは現在、会話が制限されています。ご質問がある場合は、NPO法人コネクトのウェブサイトをご確認いただくか、直接お問い合わせください。'
-                });
-                return res.status(200).send('Event processed: locked user');
-            }
+async function sendScheduledWatchMessage() {
+    console.log('⏰ 定期見守りメッセージ送信処理を開始します...');
+    const db = await connectToMongoDB();
+    if (!db) {
+        console.error('MongoDB接続失敗: 定期見守りメッセージを送信できません。');
+        return;
+    }
+    const usersCollection = db.collection("users");
+    const messagesCollection = db.collection("messages");
 
-            // --- ここから処理順序が重要 ---
+    const now = new Date();
+    const threeDaysAgo = new Date(now.getTime() - (3 * 24 * 60 * 60 * 1000));
+    const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+    const fiveHoursAgo = new Date(now.getTime() - (5 * 60 * 60 * 1000));
 
-            // 1. 特殊返信のチェック（Flexメッセージを含む最優先処理）
-            const specialReply = checkSpecialReply(userMessage);
-            if (specialReply) {
-                if (typeof specialReply === 'object' && specialReply !== null) { // Flexオブジェクトの場合
-                    console.log(`✅ Flexメッセージを送信しています (種別: ${specialReply.altText})`);
-                    await client.replyMessage(event.replyToken, specialReply);
-                    // 危険ワード・詐欺ワードの場合、管理者への通知と警告カウント、ロック処理を行う
-                    if (specialReply === emergencyFlex || specialReply === scamFlex) {
-                        if (specialReply === emergencyFlex && OFFICER_GROUP_ID) {
-                            await client.pushMessage(OFFICER_GROUP_ID, {
-                                type: 'text',
-                                text: `⚠️ ユーザー ${user.displayName} (${userId}) から危険なメッセージが検出されました: "${userMessage}"`
-                            });
-                        } else if (specialReply === scamFlex) {
-                            await usersCollection.updateOne(
-                                { userId },
-                                { $inc: { scamWarningCount: 1 } }
-                            );
-                            if (user.scamWarningCount + 1 >= 3) {
-                                await usersCollection.updateOne(
-                                    { userId },
-                                    { $set: { isPermanentlyLocked: true } }
-                                );
-                                if (OFFICER_GROUP_ID) {
-                                    await client.pushMessage(OFFICER_GROUP_ID, {
-                                        type: 'text',
-                                        text: `🚨 ユーザー ${user.displayName} (${userId}) が詐欺に関する危険なメッセージを繰り返し送信したため、永久ロックされました。確認してください。`
-                                    });
-                                }
+
+    // フェーズ1: 3日以上応答がないユーザーに初回見守りメッセージを送信
+    const usersForInitialMessage = await usersCollection.find({
+        wantsWatchCheck: true,
+        // BOT_ADMIN_IDSに含まれるユーザーには送らない
+        userId: { $nin: BOT_ADMIN_IDS },
+        $or: [
+            { lastOkResponse: { $lt: threeDaysAgo } },
+            { lastOkResponse: { $exists: false } }
+        ],
+        scheduledMessageSent: { $ne: true } // 初回送信済みでないユーザー
+    }).toArray();
+
+    console.log(`✉️ 初回見守りメッセージ送信対象ユーザー: ${usersForInitialMessage.length}名`);
+
+    for (const user of usersForInitialMessage) {
+        // OWNER_USER_ID もしくは OFFICER_GROUP_IDが設定されている場合は、そのIDには見守りメッセージを送らない
+        if (user.userId === OWNER_USER_ID || user.userId === OFFICER_GROUP_ID) {
+            console.log(`ユーザー ${user.userId} は管理者IDのためスキップします。`);
+            continue;
+        }
+
+        if (!user.emergencyContact) {
+            console.log(`ユーザー ${user.userId} は緊急連絡先が未登録のためスキップします。`);
+            continue;
+        }
+
+        const randomMessage = watchMessages[Math.floor(Math.random() * watchMessages.length)];
+        try {
+            await client.pushMessage(user.userId, {
+                type: 'text',
+                text: randomMessage,
+                quickReply: { // 返信ボタンを追加
+                    items: [
+                        {
+                            type: "action",
+                            action: {
+                                type: "message",
+                                label: "OKだよ💖",
+                                text: "OKだよ💖"
                             }
                         }
-                    }
-                } else { // 通常のテキスト返信の場合
-                    console.log(`✅ テキスト返信「${specialReply.substring(0, 20)}...」を送信しています。`);
-                    await client.replyMessage(event.replyToken, { type: 'text', text: specialReply });
+                    ]
                 }
-                return res.status(200).send('Event processed: special reply'); // ここで確実に処理を終了
+            });
+            console.log(`✅ ユーザー ${user.userId} に初回見守りメッセージを送信しました。`);
+            await usersCollection.updateOne(
+                { userId: user.userId },
+                { $set: { scheduledMessageSent: true, scheduledMessageTimestamp: now, firstReminderSent: false, secondReminderSent: false } }
+            );
+            await messagesCollection.insertOne({
+                userId: user.userId,
+                message: '(定期見守りメッセージ - 初回)',
+                replyText: randomMessage,
+                respondedBy: 'こころちゃん（定期見守り）',
+                timestamp: now,
+                logType: 'scheduled_watch_message_initial'
+            });
+        } catch (error) {
+            console.error(`❌ ユーザー ${user.userId} への初回見守りメッセージ送信に失敗しました:`, error.message);
+        }
+    }
+
+    // フェーズ2: 初回見守りメッセージ送信後24時間以内に応答がないユーザーにリマインドメッセージを送信
+    const usersForFirstReminder = await usersCollection.find({
+        wantsWatchCheck: true,
+        userId: { $nin: BOT_ADMIN_IDS },
+        scheduledMessageSent: true,
+        firstReminderSent: { $ne: true },
+        lastOkResponse: { $lt: twentyFourHoursAgo },
+        scheduledMessageTimestamp: { $lt: twentyFourHoursAgo }
+    }).toArray();
+
+    console.log(`✉️ 1回目リマインドメッセージ送信対象ユーザー: ${usersForFirstReminder.length}名`);
+
+    for (const user of usersForFirstReminder) {
+        // OWNER_USER_ID もしくは OFFICER_GROUP_IDが設定されている場合は、そのIDには見守りメッセージを送らない
+        if (user.userId === OWNER_USER_ID || user.userId === OFFICER_GROUP_ID) {
+            console.log(`ユーザー ${user.userId} は管理者IDのためスキップします。`);
+            continue;
+        }
+
+        if (!user.emergencyContact) {
+            continue;
+        }
+        try {
+            const reminderMessage = "こころだよ🌸 前に送ったメッセージ、見てくれたかな？ 大丈夫か心配だよ💖";
+            await client.pushMessage(user.userId, {
+                type: 'text',
+                text: reminderMessage,
+                quickReply: { // 返信ボタンを追加
+                    items: [
+                        {
+                            type: "action",
+                            action: {
+                                type: "message",
+                                label: "OKだよ💖",
+                                text: "OKだよ💖"
+                            }
+                        }
+                    ]
+                }
+            });
+            console.log(`✅ ユーザー ${user.userId} に1回目リマインドメッセージを送信しました。`);
+            await usersCollection.updateOne(
+                { userId: user.userId },
+                { $set: { firstReminderSent: true, firstReminderTimestamp: now } }
+            );
+            await messagesCollection.insertOne({
+                userId: user.userId,
+                message: '(定期見守りメッセージ - 1回目リマインド)',
+                replyText: reminderMessage,
+                respondedBy: 'こころちゃん（定期見守り）',
+                timestamp: now,
+                logType: 'scheduled_watch_message_reminder1'
+            });
+        } catch (error) {
+            console.error(`❌ ユーザー ${user.userId} への1回目リマインドメッセージ送信に失敗しました:`, error.message);
+        }
+    }
+
+    // フェーズ3: 1回目リマインドメッセージ送信後5時間以内に応答がないユーザーの緊急連絡先に通知
+    const usersForEmergencyContact = await usersCollection.find({
+        wantsWatchCheck: true,
+        userId: { $nin: BOT_ADMIN_IDS },
+        firstReminderSent: true,
+        secondReminderSent: { $ne: true }, // 2回目リマインダー（緊急連絡通知）未送信
+        lastOkResponse: { $lt: fiveHoursAgo }, // 直近のOK応答が5時間以上前
+        firstReminderTimestamp: { $lt: fiveHoursAgo } // 1回目リマインダー送信が5時間以上前
+    }).toArray();
+
+    console.log(`🚨 緊急連絡先通知対象ユーザー: ${usersForEmergencyContact.length}名`);
+
+    for (const user of usersForEmergencyContact) {
+        // OWNER_USER_ID もしくは OFFICER_GROUP_IDが設定されている場合は、そのIDには見守りメッセージを送らない
+        if (user.userId === OWNER_USER_ID || user.userId === OFFICER_GROUP_ID) {
+            console.log(`ユーザー ${user.userId} は管理者IDのためスキップします。`);
+            continue;
+        }
+
+        if (!user.emergencyContact) {
+            console.log(`ユーザー ${user.userId} は緊急連絡先が未登録のためスキップします。`);
+            continue;
+        }
+
+        try {
+            const userDisplayName = await getUserDisplayName(user.userId);
+            const emergencyMessage = `⚠️ 緊急！ ${userDisplayName}さん（LINE ID: ${user.userId}）が、こころちゃん見守りサービスに29時間応答していません。登録された緊急連絡先 ${user.emergencyContact} へ連絡してください。`;
+
+            // 理事長（OWNER_USER_ID）にプッシュ通知
+            if (OWNER_USER_ID) {
+                await client.pushMessage(OWNER_USER_ID, { type: 'text', text: emergencyMessage });
+                console.log(`🚨 理事長へ緊急通知を送信しました（ユーザー: ${user.userId}）`);
             }
 
-            // 2. 不適切ワードのチェック (AI応答ブロックと警告カウント、ロック処理)
-            const isInappropriate = containsInappropriateWords(userMessage);
-            if (isInappropriate) {
-                console.log("🚫 不適切ワードが検出されました。警告カウントを更新します。");
-                await usersCollection.updateOne(
-                    { userId },
-                    { $inc: { inappropriateWarningCount: 1 } }
-                );
-                if (user.inappropriateWarningCount + 1 >= 3) {
-                    await usersCollection.updateOne(
-                        { userId },
-                        { $set: { isPermanentlyLocked: true } }
-                    );
-                    if (OFFICER_GROUP_ID) {
-                        await client.pushMessage(OFFICER_GROUP_ID, {
-                            type: 'text',
-                            text: `🚨 ユーザー ${user.displayName} (${userId}) が不適切なメッセージを繰り返し送信したため、永久ロックされました。確認してください。`
-                        });
-                    }
-                }
-                // 不適切ワードの場合は、AIに生成させずに固定メッセージを返す
-                await client.replyMessage(event.replyToken, {
-                    type: 'text',
-                    text: "わたしを作った人に『プライベートなことや不適切な話題には答えちゃだめだよ』って言われているんだ🌸ごめんね、他のお話をしようね💖"
-                });
-                return res.status(200).send('Event processed: inappropriate word');
+            // オフィサーグループ（OFFICER_GROUP_ID）にプッシュ通知
+            if (OFFICER_GROUP_ID) {
+                await client.pushMessage(OFFICER_GROUP_ID, { type: 'text', text: emergencyMessage });
+                console.log(`🚨 オフィサーグループへ緊急通知を送信しました（ユーザー: ${user.userId}）`);
             }
 
+            await usersCollection.updateOne(
+                { userId: user.userId },
+                { $set: { secondReminderSent: true, secondReminderTimestamp: now } }
+            );
+            await messagesCollection.insertOne({
+                userId: user.userId,
+                message: '(定期見守りメッセージ - 緊急連絡先通知)',
+                replyText: emergencyMessage,
+                respondedBy: 'こころちゃん（緊急通知）',
+                timestamp: now,
+                logType: 'scheduled_watch_message_emergency'
+            });
+        } catch (error) {
+            console.error(`❌ 緊急連絡先通知の送信に失敗しました（ユーザー: ${user.userId}）:`, error.message);
+        }
+    }
 
-            // 3. AIによる返信生成（ここが最後の手段。上記で処理されなかった場合のみ）
-            console.log("💬 AIによる返信を生成しています。");
-            const replyText = await generateReply(userId, userMessage);
-            await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+    console.log('✅ 定期見守りメッセージ送信処理を終了しました。');
+}
 
-        } else if (event.type === 'postback') {
+// 毎日午前4時に全ユーザーの flaggedMessageCount をリセットするCronジョブ
+cron.schedule('0 4 * * *', async () => { // JST 4:00
+    const db = await connectToMongoDB();
+    if (!db) {
+        console.error('MongoDB接続失敗: flaggedMessageCountのリセットができません。');
+        return;
+    }
+    const usersCollection = db.collection("users");
+    // ★修正: isPermanentlyLocked が true のユーザーはリセット対象外
+    await usersCollection.updateMany(
+        { isPermanentlyLocked: { $ne: true } }, // 永久ロックされていないユーザーのみを対象
+        { $set: { flaggedMessageCount: 0, isAccountSuspended: false, suspensionReason: null } }
+    );
+    console.log("✅ 毎日 1 回、永久ロックされていない全ユーザーの flaggedMessageCount と日次サスペンド状態をリセットしました。");
+}, {
+    scheduled: true,
+    timezone: "Asia/Tokyo"
+});
+
+// 毎日午後3時に実行 (日本時間 JST = UTC+9)
+// CronのスケジュールはUTCで解釈されるため、JSTで午後3時 (15時) はUTCで午前6時 (6時) に相当します。
+cron.schedule('0 15 * * *', sendScheduledWatchMessage, { // JST 15:00
+    scheduled: true,
+    timezone: "Asia/Tokyo"
+});
+
+// Postbackイベントハンドラ
+app.post('/webhook', async (req, res) => {
+    const events = req.body.events;
+    for (const event of events) {
+        if (event.type === 'postback' && event.postback.data) {
+            const data = new URLSearchParams(event.postback.data);
+            const action = data.get('action');
             const userId = event.source.userId;
-            const postbackData = new URLSearchParams(event.postback.data);
-            const action = postbackData.get('action');
-            const usersCollection = dbInstance.collection("users");
+
+            const db = await connectToMongoDB();
+            if (!db) {
+                console.error('MongoDB接続失敗: Postbackイベントを処理できません。');
+                return res.status(500).send('MongoDB connection failed');
+            }
+            const usersCollection = db.collection("users");
+            const messagesCollection = db.collection("messages");
+
+            // ★修正: アカウントが恒久的にロックされている場合のPostback処理もブロック
+            const user = await usersCollection.findOne({ userId: userId });
+            if (user && user.isPermanentlyLocked) {
+                // 永久ロックユーザーには、Postbackに対する返信も行わない
+                await messagesCollection.insertOne({
+                    userId: userId,
+                    message: `（Postbackイベント - ${action}）`,
+                    replyText: '（アカウント永久停止中のため返信ブロック）',
+                    respondedBy: 'こころちゃん（システム - 永久停止）',
+                    timestamp: new Date(),
+                    logType: 'account_permanently_locked_postback_ignored'
+                });
+                return res.status(200).send('OK'); // ここでWebhook処理を終了
+            }
+
+            // ★修正: 日次停止ユーザーのPostback処理（見守りサービス関連は許可）
+            if (user && user.isAccountSuspended && action !== 'watch_register' && action !== 'watch_unregister') {
+                await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんなさい、今日はこれ以上お話しできません🌸 明日になったらまた話しかけてね💖' });
+                return res.status(200).send('OK');
+            }
 
             if (action === 'watch_register') {
-                await usersCollection.updateOne(
-                    { userId },
-                    { $set: { watchServiceRegistered: true, lastWatchedAt: new Date() } },
-                    { upsert: true }
-                );
-                await client.replyMessage(event.replyToken, {
-                    type: 'text',
-                    text: '見守りサービスに登録したよ！3日に1回「元気かな？」ってメッセージを送るね💖 返信してくれたら見守り完了だよ😊'
-                });
+                await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, "見守り登録します");
             } else if (action === 'watch_unregister') {
-                await usersCollection.updateOne(
-                    { userId },
-                    { $set: { watchServiceRegistered: false } }
-                );
-                await client.replyMessage(event.replyToken, {
-                    type: 'text',
-                    text: '見守りサービスを解除したよ。いつでもまた登録できるから、必要になったら声をかけてね🌸'
-                });
-            } else if (action === 'watch_check_in') { // 見守りメッセージへの返信
-                await usersCollection.updateOne(
-                    { userId },
-                    { $set: { lastWatchedAt: new Date() } }
-                );
-                await client.replyMessage(event.replyToken, {
-                    type: 'text',
-                    text: '返信ありがとう！元気そうで安心したよ💖\nいつも応援してるからね😊'
-                });
+                await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, "見守り解除します");
             }
         }
     }
-    res.status(200).send('Event processed');
-});
-
-// isBotAdmin 関数の定義 (まだ定義されていなかったので追加)
-function isBotAdmin(userId) {
-    return BOT_ADMIN_IDS.includes(userId);
-}
-
-// containsHomeworkTrigger 関数の定義 (まだ定義されていなかったので追加)
-function containsHomeworkTrigger(message) {
-    return homeworkTriggers.some(trigger => message.includes(trigger));
-}
-
-// containsInappropriateWords 関数の定義 (まだ定義されていなかったので追加)
-function containsInappropriateWords(message) {
-    return inappropriateWords.some(word => message.includes(word));
-}
-
-// --- 見守りサービス（Cronジョブ） ---
-// 毎日午前9時に実行
-cron.schedule('0 9 * * *', async () => {
-    console.log('⏰ 見守りサービス Cron ジョブ実行中...');
-    try {
-        const usersCollection = dbInstance.collection("users");
-        const threeDaysAgo = new Date();
-        threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-
-        const usersToWatch = await usersCollection.find({
-            watchServiceRegistered: true,
-            lastWatchedAt: { $lt: threeDaysAgo } // 3日以上返信がないユーザー
-        }).toArray();
-
-        for (const user of usersToWatch) {
-            try {
-                await client.pushMessage(user.userId, {
-                    type: 'flex',
-                    altText: 'こころちゃんからメッセージだよ🌸',
-                    contents: {
-                        type: 'bubble',
-                        body: {
-                            type: 'box',
-                            layout: 'vertical',
-                            contents: [
-                                { type: 'text', text: `${user.displayName}さん、元気かな？🌸`, weight: 'bold', size: 'lg' },
-                                { type: 'text', text: '「OKだよ」などのボタンを押して、元気なことを教えてくれると嬉しいな💖', wrap: true, size: 'sm', margin: 'md' }
-                            ]
-                        },
-                        footer: {
-                            type: 'box',
-                            layout: 'horizontal',
-                            contents: [
-                                {
-                                    type: 'button',
-                                    action: {
-                                        type: 'postback',
-                                        label: 'OKだよ！',
-                                        data: 'action=watch_check_in'
-                                    },
-                                    style: 'primary',
-                                    color: '#FFB6C1'
-                                }
-                            ]
-                        }
-                    }
-                });
-                console.log(`✅ ${user.displayName} (${user.userId}) に見守りメッセージを送信しました。`);
-            } catch (pushError) {
-                console.error(`❌ 見守りメッセージ送信失敗 for ${user.userId}:`, pushError);
-            }
-        }
-        console.log('✅ 見守りサービス Cron ジョブ完了。');
-    } catch (dbError) {
-        console.error('❌ 見守りサービス Cron ジョブでDBエラー:', dbError);
-    }
-});
-
-// --- 月間メッセージカウントのリセット Cron ジョブ ---
-// 毎月1日午前0時に実行
-cron.schedule('0 0 1 * *', async () => {
-    console.log('⏰ 月間メッセージカウントリセット Cron ジョブ実行中...');
-    try {
-        const usersCollection = dbInstance.collection("users");
-        const result = await usersCollection.updateMany(
-            {}, // 全てのユーザー
-            { $set: { messageCount: 0, lastMessageMonth: new Date().getMonth() } }
-        );
-        console.log(`✅ 月間メッセージカウントリセット Cron ジョブ完了。更新件数: ${result.modifiedCount}`);
-    } catch (error) {
-        console.error('❌ 月間メッセージカウントリセット Cron ジョブでエラー:', error);
-    }
-});
-
-
-// --- ヘルスチェックエンドポイント ---
-app.get('/callback', (req, res) => {
     res.status(200).send('OK');
 });
 
-// --- サーバー起動 ---
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, async () => {
-    console.log(`サーバーがポート ${PORT} で起動しました。`);
-    await connectToMongoDB();
+// メッセージイベントハンドラ
+app.post('/webhook', async (req, res) => {
+    const events = req.body.events;
+    for (const event of events) {
+        if (event.type === 'message' && event.message.type === 'text') {
+            const userMessage = event.message.text;
+            const userId = event.source.userId;
+            const sourceId = event.source.type === 'group' ? event.source.groupId : event.source.userId;
+
+            const db = await connectToMongoDB();
+            if (!db) {
+                console.error('MongoDB接続失敗: メッセージイベントを処理できません。');
+                return res.status(500).send('MongoDB connection failed');
+            }
+            const usersCollection = db.collection("users");
+            const messagesCollection = db.collection("messages");
+
+            // ★追加: 管理者コマンドの処理
+            if (isBotAdmin(userId)) {
+                const unlockMatch = userMessage.match(/^\/unlock (U[0-9a-f]{32})$/); // 例: /unlock Uxxxxxxxxxxxxxxxxx
+                if (unlockMatch) {
+                    const targetUserId = unlockMatch[1];
+                    try {
+                        const result = await usersCollection.updateOne(
+                            { userId: targetUserId },
+                            { $set: { isAccountSuspended: false, suspensionReason: null, flaggedMessageCount: 0, isPermanentlyLocked: false, lastPermanentLockNotifiedAt: null } } // ★修正: lastPermanentLockNotifiedAt もリセット
+                        );
+                        if (result.matchedCount > 0) {
+                            await client.replyMessage(event.replyToken, { type: 'text', text: `✅ ユーザー ${targetUserId} のロックを解除し、カウントをリセットしました。` });
+                            // 解除されたユーザーにも通知を送る（任意）
+                            await client.pushMessage(targetUserId, { type: 'text', text: '🌸 あなたのアカウントの停止が解除されました。またいつでもお話しできますよ💖' });
+                            console.log(`管理者 ${userId} によりユーザー ${targetUserId} のロックが解除されました。`);
+                        } else {
+                            await client.replyMessage(event.replyToken, { type: 'text', text: `❌ ユーザー ${targetUserId} は見つかりませんでした。` });
+                        }
+                    } catch (error) {
+                        console.error(`❌ 管理者コマンドでのロック解除エラー: ${error.message}`);
+                        await client.replyMessage(event.replyToken, { type: 'text', text: `❌ ロック解除中にエラーが発生しました: ${error.message}` });
+                    }
+                    await messagesCollection.insertOne({ // 管理者コマンドのログ
+                        userId: userId,
+                        message: userMessage,
+                        replyText: `（管理者コマンド: ${userMessage}）`,
+                        respondedBy: 'こころちゃん（管理者コマンド処理）',
+                        timestamp: new Date(),
+                        logType: 'admin_command'
+                    });
+                    return res.status(200).send('OK'); // コマンド処理後はここで終了
+                }
+            }
+
+            // ユーザーが存在しない場合、初回登録
+            let user = await usersCollection.findOne({ userId: userId });
+            if (!user) {
+                user = {
+                    userId: userId,
+                    displayName: await getUserDisplayName(userId),
+                    createdAt: new Date(),
+                    lastMessageAt: new Date(),
+                    wantsWatchCheck: false,
+                    emergencyContact: null,
+                    registrationStep: null,
+                    scheduledMessageSent: false,
+                    firstReminderSent: false,
+                    secondReminderSent: false,
+                    lastOkResponse: new Date(),
+                    flaggedMessageCount: 0,
+                    isAccountSuspended: false,
+                    suspensionReason: null,
+                    isPermanentlyLocked: false, // ★追加: 永久ロックフラグ
+                    lastPermanentLockNotifiedAt: null // ★追加: 永久ロック通知日時
+                };
+                await usersCollection.insertOne(user);
+                console.log(`新規ユーザー登録: ${user.displayName} (${userId})`);
+            } else {
+                // 既存ユーザーの最終メッセージ日時を更新
+                await usersCollection.updateOne(
+                    { userId: userId },
+                    { $set: { lastMessageAt: new Date() } }
+                );
+                // 既存ユーザーでflaggedMessageCountやisAccountSuspended, isPermanentlyLockedが未定義の場合に初期化 (初回デプロイ時の対応)
+                if (user.flaggedMessageCount === undefined) {
+                    await usersCollection.updateOne({ userId: userId }, { $set: { flaggedMessageCount: 0 } });
+                    user.flaggedMessageCount = 0;
+                }
+                if (user.isAccountSuspended === undefined) {
+                    await usersCollection.updateOne({ userId: userId }, { $set: { isAccountSuspended: false, suspensionReason: null } });
+                    user.isAccountSuspended = false;
+                    user.suspensionReason = null;
+                }
+                // ★追加: isPermanentlyLocked の初期化
+                if (user.isPermanentlyLocked === undefined) {
+                    await usersCollection.updateOne({ userId: userId }, { $set: { isPermanentlyLocked: false } });
+                    user.isPermanentlyLocked = false;
+                }
+                // ★追加: lastPermanentLockNotifiedAt の初期化
+                if (user.lastPermanentLockNotifiedAt === undefined) {
+                    await usersCollection.updateOne({ userId: userId }, { $set: { lastPermanentLockNotifiedAt: null } });
+                    user.lastPermanentLockNotifiedAt = null;
+                }
+            }
+
+            // ★修正: アカウントが恒久的にロックされている場合の処理を最優先
+            if (user.isPermanentlyLocked) {
+                const now = new Date();
+                const oneDayAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000)); // 24時間前
+
+                // 最終通知から24時間以上経過しているか、まだ通知していない場合のみ返信する
+                if (!user.lastPermanentLockNotifiedAt || user.lastPermanentLockNotifiedAt < oneDayAgo) {
+                    const userDisplayName = await getUserDisplayName(userId);
+                    const emailAddress = "support@connect-npo.org"; // 問い合わせ先のメールアドレス
+
+                    // ユーザーに送信する停止通知メッセージ
+                    const permanentLockMessage = `
+ごめんなさい。このアカウントは、利用規約に違反する悪意ある行為が確認されたため、停止となりました。
+
+心当たりのない方は、以下をお伝えの上、${emailAddress} までメールにてご連絡をお願いします。
+・LINE ID: ${userId}
+・ユーザー名: ${userDisplayName}
+・メッセージ送信日時（おおよそで結構です）
+`.trim();
+
+                    await client.replyMessage(event.replyToken, { type: 'text', text: permanentLockMessage });
+                    await usersCollection.updateOne( // 通知日時を更新
+                        { userId: userId },
+                        { $set: { lastPermanentLockNotifiedAt: now } }
+                    );
+                    await messagesCollection.insertOne({ // 通知ログ
+                        userId: userId,
+                        message: userMessage,
+                        replyText: permanentLockMessage, // 送信したメッセージをログに記録
+                        respondedBy: 'こころちゃん（システム - 永久停止通知）',
+                        timestamp: new Date(),
+                        logType: 'account_permanently_locked_notified'
+                    });
+                } else {
+                    // 24時間以内に通知済みの場合は、LINE APIへの返信は行わず、WebhookをOKで終了させるのみ
+                    console.log(`ユーザー ${userId} は永久ロック済みで、最近通知済みのため、メッセージを無視します。`);
+                    await messagesCollection.insertOne({ // 無視した旨のログ
+                        userId: userId,
+                        message: userMessage,
+                        replyText: '（アカウント永久停止中のため返信ブロック - 通知済み）',
+                        respondedBy: 'こころちゃん（システム - 永久停止）',
+                        timestamp: new Date(),
+                        logType: 'account_permanently_locked_ignored'
+                    });
+                }
+                return res.status(200).send('OK'); // ここでWebhook処理を終了し、サーバー負荷を最小化
+            }
+
+            // ★修正: 日次停止されている場合の処理 (永久ロックより後)
+            if (user.isAccountSuspended) { // isPermanentlyLocked が false の場合のみここに来る
+                await client.replyMessage(event.replyToken, { type: 'text', text: 'ごめんなさい、今日はこれ以上お話しできません🌸 明日になったらまた話しかけてね💖' });
+                await messagesCollection.insertOne({
+                    userId: userId,
+                    message: userMessage,
+                    replyText: '（アカウント停止中のため返信ブロック）',
+                    respondedBy: 'こころちゃん（システム）',
+                    timestamp: new Date(),
+                    logType: 'account_suspended_daily'
+                });
+                return res.status(200).send('OK');
+            }
+
+            // 見守りサービス関連の処理を優先
+            // ただし、見守りサービス関連のメッセージが不適切ワードを含む可能性もあるため、
+            // isFlaggedMessageのチェックはその後に行う必要がある。
+            // 見守りサービスの特定のキーワード（「見守り登録します」「OKだよ💖」など）は
+            // 不適切ワード検出より優先して処理し、フラグ付きカウントには含めない。
+            const handledByWatchService = await handleWatchServiceRegistration(event, usersCollection, messagesCollection, userId, userMessage);
+            if (handledByWatchService) {
+                return res.status(200).send('OK');
+            }
+
+
+            // 危険ワード、詐欺ワード、不適切ワードのチェック
+            let replyText;
+            let respondedBy = 'こころちゃん（AI）';
+            let logType = 'normal';
+            let isFlaggedMessage = false; // フラグ付きメッセージであるか
+
+            // 不適切ワード検出は、AI生成よりも優先
+            if (containsInappropriateWords(userMessage)) {
+                isFlaggedMessage = true;
+                logType = 'inappropriate_detected';
+                respondedBy = 'こころちゃん（不適切ワード）';
+
+                const updateResult = await usersCollection.findOneAndUpdate(
+                    { userId: userId },
+                    { $inc: { flaggedMessageCount: 1 } },
+                    { returnDocument: 'after' }
+                );
+                const updatedUser = updateResult.value;
+                const currentFlaggedCount = updatedUser ? updatedUser.flaggedMessageCount : 0;
+                const userDisplayName = updatedUser ? updatedUser.displayName : "不明なユーザー";
+
+                if (currentFlaggedCount === 1) {
+                    replyText = { type: 'text', text: `ごめんなさい💦 不適切なワードが検出されました (1/3) 🌸ごめんね、他のお話をしようね💖` };
+                } else if (currentFlaggedCount === 2) {
+                    replyText = { type: 'text', text: `⚠️ 不適切なワードが検出されました (2/3) 管理者が会話内容を確認する場合があります。気をつけてね🌸` }; // ★修正: 既読懸念を考慮した文言
+                    // 管理者への通知
+                    if (OWNER_USER_ID) {
+                        const notificationMessage = `🚨 緊急通知：ユーザー「${userDisplayName}」（ID: ${userId}）が2回目のフラグ付き発言（${logType}）を行いました。\n\n内容: 「${userMessage}」`;
+                        await client.pushMessage(OWNER_USER_ID, { type: 'text', text: notificationMessage });
+                        console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に2回目フラグ付き発言通知を送信しました（ユーザー: ${userId}）`);
+                    }
+                } else if (currentFlaggedCount >= 3) {
+                    replyText = { type: 'text', text: `🚫 不適切なワードが検出されました (3/3) このアカウントは今後ご利用いただけません。` }; // ★修正: メッセージをより厳しく
+                    // アカウント永久停止
+                    await usersCollection.updateOne(
+                        { userId: userId },
+                        { $set: { isAccountSuspended: true, suspensionReason: 'inappropriate_permanently_locked', isPermanentlyLocked: true, lastPermanentLockNotifiedAt: new Date() } } // ★修正: isPermanentlyLocked を true に、通知日時も設定
+                    );
+                    // 管理者への通知 (3回目)
+                    if (OWNER_USER_ID) {
+                        const notificationMessage = `🚨 緊急通知：ユーザー「${userDisplayName}」（ID: ${userId}）が3回目のフラグ付き発言（${logType}）を行い、アカウントが永久停止されました。\n\n内容: 「${userMessage}」`;
+                        await client.pushMessage(OWNER_USER_ID, { type: 'text', text: notificationMessage });
+                        console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に3回目フラグ付き発言通知とアカウント永久停止通知を送信しました（ユーザー: ${userId}）`);
+                    }
+                }
+            } else if (containsDangerWords(userMessage)) {
+                isFlaggedMessage = true;
+                logType = 'danger_detected';
+                respondedBy = 'こころちゃん（緊急対応）';
+                replyText = emergencyFlex;
+
+                const updateResult = await usersCollection.findOneAndUpdate(
+                    { userId: userId },
+                    { $inc: { flaggedMessageCount: 1 } },
+                    { returnDocument: 'after' }
+                );
+                const updatedUser = updateResult.value;
+                const currentFlaggedCount = updatedUser ? updatedUser.flaggedMessageCount : 0;
+                const userDisplayName = updatedUser ? updatedUser.displayName : "不明なユーザー";
+
+                if (currentFlaggedCount === 2 && OWNER_USER_ID) {
+                    const notificationMessage = `🚨 緊急通知：ユーザー「${userDisplayName}」（ID: ${userId}）が2回目のフラグ付き発言（${logType}）を行いました。\n\n内容: 「${userMessage}」`;
+                    await client.pushMessage(OWNER_USER_ID, { type: 'text', text: notificationMessage });
+                    console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に2回目フラグ付き発言通知を送信しました（ユーザー: ${userId}）`);
+                } else if (currentFlaggedCount >= 3) { // 3回目で永久停止
+                     await usersCollection.updateOne(
+                        { userId: userId },
+                        { $set: { isAccountSuspended: true, suspensionReason: 'danger_permanently_locked', isPermanentlyLocked: true, lastPermanentLockNotifiedAt: new Date() } } // ★修正: isPermanentlyLocked を true に、通知日時も設定
+                    );
+                    replyText = { type: 'text', text: `🚫 危険なワードが検出されました (3/3) このアカウントは今後ご利用いただけません。` }; // ★修正
+                    const notificationMessage = `🚨 緊急通知：ユーザー「${userDisplayName}」（ID: ${userId}）が3回目のフラグ付き発言（${logType}）を行い、アカウントが永久停止されました。\n\n内容: 「${userMessage}」`;
+                    await client.pushMessage(OWNER_USER_ID, { type: 'text', text: notificationMessage });
+                    console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に3回目フラグ付き発言通知とアカウント永久停止通知を送信しました（ユーザー: ${userId}）`);
+                }
+            } else if (containsScamWords(userMessage) || contextualScamPhrases.some(phrase => userMessage.toLowerCase().includes(phrase.toLowerCase()))) {
+                isFlaggedMessage = true;
+                logType = 'scam_detected';
+                respondedBy = 'こころちゃん（詐欺対応）';
+                replyText = scamFlex;
+
+                const updateResult = await usersCollection.findOneAndUpdate(
+                    { userId: userId },
+                    { $inc: { flaggedMessageCount: 1 } },
+                    { returnDocument: 'after' }
+                );
+                const updatedUser = updateResult.value;
+                const currentFlaggedCount = updatedUser ? updatedUser.flaggedMessageCount : 0;
+                const userDisplayName = updatedUser ? updatedUser.displayName : "不明なユーザー";
+
+                if (currentFlaggedCount === 2 && OWNER_USER_ID) {
+                    const notificationMessage = `🚨 緊急通知：ユーザー「${userDisplayName}」（ID: ${userId}）が2回目のフラグ付き発言（${logType}）を行いました。\n\n内容: 「${userMessage}」`;
+                    await client.pushMessage(OWNER_USER_ID, { type: 'text', text: notificationMessage });
+                    console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に2回目フラグ付き発言通知を送信しました（ユーザー: ${userId}）`);
+                } else if (currentFlaggedCount >= 3) { // 3回目で永久停止
+                     await usersCollection.updateOne(
+                        { userId: userId },
+                        { $set: { isAccountSuspended: true, suspensionReason: 'scam_permanently_locked', isPermanentlyLocked: true, lastPermanentLockNotifiedAt: new Date() } } // ★修正: isPermanentlyLocked を true に、通知日時も設定
+                    );
+                    replyText = { type: 'text', text: `🚫 詐欺の可能性がある内容が検出されました (3/3) このアカウントは今後ご利用いただけません。` }; // ★修正
+                    const notificationMessage = `🚨 緊急通知：ユーザー「${userDisplayName}」（ID: ${userId}）が3回目のフラグ付き発言（${logType}）を行い、アカウントが永久停止されました。\n\n内容: 「${userMessage}」`;
+                    await client.pushMessage(OWNER_USER_ID, { type: 'text', text: notificationMessage });
+                    console.log(`🚨 OWNER_USER_ID (${OWNER_USER_ID}) に3回目フラグ付き発言通知とアカウント永久停止通知を送信しました（ユーザー: ${userId}）`);
+                }
+            } else {
+                // 通常のAI応答または固定応答
+                if (isOrganizationInquiry(userMessage)) {
+                    replyText = { type: 'text', text: await generateReply(userMessage) };
+                    respondedBy = 'こころちゃん（AI-組織説明）';
+                } else {
+                    const specialReply = checkSpecialReply(userMessage);
+                    if (specialReply) {
+                        replyText = { type: 'text', text: specialReply };
+                        respondedBy = 'こころちゃん（固定応答）';
+                    } else {
+                        replyText = { type: 'text', text: await generateReply(userMessage) };
+                    }
+                }
+            }
+
+            try {
+                // 永続ロックされたユーザーへの初回通知時以外は、replyMessageは行わない
+                // 上記の isPermanentlyLocked のブロックで既に replyMessage が行われているか、
+                // あるいは行わない判断がされているため、ここでは !user.isPermanentlyLocked の条件は不要
+                // (ただし、その条件でreplyTextが設定されている場合もあるので、型チェックを挟む)
+                if (replyText && typeof replyText === 'object' && replyText.type) { // replyTextがオブジェクト型（Flexメッセージなど）の場合
+                     await client.replyMessage(event.replyToken, replyText);
+                } else if (replyText && typeof replyText === 'string') { // replyTextが文字列（テキストメッセージ）の場合
+                     await client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+                }
+
+                // フラグ付きメッセージは常にログに記録（PermanentLockで通知しなかった場合もログは残す）
+                if (isFlaggedMessage) {
+                    await messagesCollection.insertOne({
+                        userId: userId,
+                        message: userMessage,
+                        replyText: JSON.stringify(replyText), // Flexメッセージの場合はJSON文字列化
+                        respondedBy: respondedBy,
+                        timestamp: new Date(),
+                        logType: logType
+                    });
+                } else if (shouldLogMessage(userMessage)) { // 明示的にフラグが付かなくても、危険ワード等が含まれていればログ
+                     await messagesCollection.insertOne({
+                        userId: userId,
+                        message: userMessage,
+                        replyText: JSON.stringify(replyText),
+                        respondedBy: respondedBy,
+                        timestamp: new Date(),
+                        logType: logType // ここでは `normal` または AI応答のログタイプになる
+                    });
+                } else { // 通常のメッセージもログ (ログが不要な場合はこのelseブロックを削除)
+                    await messagesCollection.insertOne({
+                        userId: userId,
+                        message: userMessage,
+                        replyText: (replyText && typeof replyText === 'string') ? replyText : JSON.stringify(replyText), // 文字列の場合はそのまま、オブジェクトの場合はJSON化
+                        respondedBy: respondedBy,
+                        timestamp: new Date(),
+                        logType: logType // 通常は 'normal'
+                    });
+                }
+
+            } catch (error) {
+                console.error("メッセージ返信中またはログ記録・通知中にエラーが発生しました:", error.message);
+                // LINE APIのエラーでreplyTokenが使用済みになる可能性があるので、replyMessageは行わない
+            }
+        }
+    }
+    res.status(200).send('OK');
 });
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`🚀 サーバーがポート ${PORT} で起動しました`);
+    connectToMongoDB(); // アプリケーション起動時にMongoDBに接続
+});
+
+
