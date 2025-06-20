@@ -27,8 +27,8 @@
           "color": "#FFA07A",
           "action": {
             "type": "uri",
-            "label": "チャイルドライン（16〜21時）",
-            "uri": "tel:012011110"
+            "label": "チャイルドライン（電話・チャット）",
+            "uri": "https://childline.or.jp/tel"
           }
         },
         {
@@ -37,8 +37,8 @@
           "color": "#FF7F50",
           "action": {
             "type": "uri",
-            "label": "いのちの電話（10〜22時）",
-            "uri": "tel:0570078640"
+            "label": "いのちの電話（24時間）",
+            "uri": "tel:0332644343"
           }
         },
         {
@@ -47,8 +47,8 @@
           "color": "#20B2AA",
           "action": {
             "type": "uri",
-            "label": "東京都こころ相談（24時間）",
-            "uri": "https://tokyo-kokoro.metro.tokyo.lg.jp/"
+            "label": "よりそいホットライン（24時間）",
+            "uri": "tel:0120279338"
           }
         },
         {
@@ -57,8 +57,8 @@
           "color": "#9370DB",
           "action": {
             "type": "uri",
-            "label": "よりそいチャット（8〜22時半）",
-            "uri": "https://yorisoi-chat.jp/"
+            "label": "東京多摩いのちの電話（10:00～21:00）",
+            "uri": "tel:0423274343"
           }
         },
         {
