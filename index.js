@@ -85,8 +85,8 @@ async function loadConfig() {
         const configDir = path.join(__dirname, 'kokoro-config');
         const templateDir = path.join(configDir, 'reply_templates');
 
-        // dangerWords と specialRepliesMap は直接定義したので、JSONからの読み込みは不要。
-        // 以下の行があなたのファイルに残っていたら、削除してください:
+        // ★★★ 重要: dangerWords と specialRepliesMap は直接定義したので、JSONからの読み込みは不要です。★★★
+        // ★★★ 以下の行があなたのファイルに残っていたら、完全に削除してください: ★★★
         // dangerWords = JSON.parse(await fs.readFile(path.join(configDir, 'danger_words.json'), 'utf8'));
         // specialReplies = JSON.parse(await fs.readFile(path.join(configDir, 'special_replies.json'), 'utf8'));
 
@@ -225,7 +225,7 @@ Q: どこの団体なの？
 A: NPO法人コネクトっていう団体のイメージキャラクターをしているよ😊　みんなの幸せを応援してるんだ🌸
 
 Q: ホームページある？
-A: うん、あるよ🌸　コネクトのホームページはこちらだよ → https://connect-npo.org
+A: うん、あるよ🌸　コネクトのホームページはこちらだよ✨ → https://connect-npo.org
 
 Q: 必要ないです
 A: そっか…。もしまた気が向いたら、いつでも話しかけてね🌸　あなたのこと、ずっと応援してるよ💖
@@ -354,7 +354,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
 
     // 「見守り」などのキーワードで案内Flex Messageを出す
     if (["見守り", "みまもり", "見守りサービス", "みまもりサービス"].includes(lowerUserMessage) && event.type === 'message' && event.message.type === 'text') {
-        await client.replyMessage(event.replyToken, watchServiceGuideFlexTemplate); // 外部化したテンプレートを使用
+        await client.replyMessage(event.replyToken, watchServiceGuideFlexTemplate);
         await messagesCollection.insertOne({
             userId: userId,
             message: userMessage,
@@ -363,7 +363,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
             timestamp: new Date(),
             logType: 'watch_service_interaction'
         });
-        return true; // 見守り関連の処理なのでここで終了
+        return true;
     }
 
     // 「OKだよ💖」などの安否確認応答
@@ -371,7 +371,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
         if (user && user.wantsWatchCheck) {
             await usersCollection.updateOne(
                 { userId: userId },
-                { $set: { lastOkResponse: new Date(), scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false } } // thirdReminderSentもリセット
+                { $set: { lastOkResponse: new Date(), scheduledMessageSent: false, firstReminderSent: false, secondReminderSent: false, thirdReminderSent: false } }
             );
             await client.replyMessage(event.replyToken, { type: 'text', text: 'ありがとう🌸 元気そうで安心したよ💖 またね！' });
             await messagesCollection.insertOne({
@@ -837,12 +837,12 @@ app.post('/webhook', async (req, res) => {
                     } else if (isOrganizationInquiry(userMessage) || containsHomeworkTrigger(userMessage)) {
                         const aiResponse = await generateReply(userMessage);
                         replyMessageObject = { type: 'text', text: aiResponse };
-                        respondedBy = 'こころちゃん（AI）';
+                        responsedBy = 'こころちゃん（AI）';
                         logType = 'ai_generated';
                     } else {
                         const aiResponse = await generateReply(userMessage);
                         replyMessageObject = { type: 'text', text: aiResponse };
-                        respondedBy = 'こころちゃん（AI）';
+                        responsedBy = 'こころちゃん（AI）';
                         logType = 'ai_generated';
                     }
                 }
