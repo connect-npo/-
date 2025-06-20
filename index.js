@@ -1,7 +1,7 @@
 require('dotenv').config(); // .env ファイルから環境変数を読み込む
 
 const express = require('express');
-const { LineClient } = require('@line/bot-sdk');
+const { Client } = require('@line/bot-sdk'); // ★修正点：LineClient を Client に変更
 const { MongoClient } = require('mongodb');
 const cron = require('node-cron');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -19,7 +19,7 @@ const BOT_ADMIN_IDS = process.env.BOT_ADMIN_IDS ? JSON.parse(process.env.BOT_ADM
 const app = express();
 app.use(express.json());
 
-const client = new LineClient({
+const client = new Client({ // ★修正点：LineClient を Client に変更
     channelAccessToken: CHANNEL_ACCESS_TOKEN,
     channelSecret: CHANNEL_SECRET,
 });
@@ -472,7 +472,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
             userId: userId,
             message: userMessage,
             replyText: '見守りサービスを登録するね！緊急時に連絡する「電話番号」を教えてくれるかな？🌸',
-            respondedBy: 'こころちゃん（見守り登録開始）',
+            responsedBy: 'こころちゃん（見守り登録開始）',
             timestamp: new Date(),
             logType: 'watch_service_registration_start'
         });
@@ -492,7 +492,7 @@ async function handleWatchServiceRegistration(event, usersCollection, messagesCo
             userId: userId,
             message: userMessage,
             replyText: `緊急連絡先 ${userMessage} を登録したよ🌸 これで見守りサービスが始まったね！ありがとう💖`,
-            respondedBy: 'こころちゃん（見守り登録完了）',
+            responsedBy: 'こころちゃん（見守り登録完了）',
             timestamp: new Date(),
             logType: 'watch_service_registration_complete'
         });
@@ -901,7 +901,7 @@ app.post('/webhook', async (req, res) => {
                 // 通常のAI応答または固定応答
                 if (isOrganizationInquiry(userMessage)) {
                     replyText = { type: 'text', text: await generateReply(userMessage) };
-                    respondedBy = 'こころちゃん（AI-組織説明）';
+                    responpondedBy = 'こころちゃん（AI-組織説明）';
                 } else {
                     const specialReply = checkSpecialReply(userMessage);
                     if (specialReply) {
