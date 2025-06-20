@@ -1,5 +1,6 @@
 require('dotenv').config(); // .env ファイルから環境変数を読み込む
 
+const path = require('path');
 const express = require('express');
 const { Client } = require('@line/bot-sdk');
 const { MongoClient } = require('mongodb');
